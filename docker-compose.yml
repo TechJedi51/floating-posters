@@ -1,0 +1,43 @@
+services:
+  floating-posters:
+    image: ghcr.io/YOUR_GITHUB_USERNAME/floating-posters:latest
+    # To build locally instead of pulling:
+    # build: .
+    volumes:
+      - /path/to/your/background.mp4:/input/background.mp4:ro
+      - /path/to/your/output:/output
+    environment:
+      # ── Required ─────────────────────────────────────────────
+      - RADARR_URL=http://your-radarr-host:7878
+      - RADARR_API_KEY=your_api_key_here
+
+      # ── Timing ───────────────────────────────────────────────
+      - START_TIME=2.0          # Seconds into video where posters appear
+      - POSTER_DURATION=8.0     # How long posters are visible (max 10)
+      - FADE_DURATION=0.75      # Fade in/out duration in seconds
+
+      # ── Poster selection ─────────────────────────────────────
+      - NUM_POSTERS=4           # How many posters (1–6)
+      - UPCOMING_DAYS=180       # Days ahead to look for releases
+
+      # ── Poster appearance ────────────────────────────────────
+      - POSTER_WIDTH=185        # Width in pixels (height auto-scales)
+      - PADDING=28              # Pixels between posters
+      - VERTICAL_POS=0.52       # 0.0=top  0.5=center  1.0=bottom
+      - CORNER_RADIUS=10        # Rounded corner radius
+
+      # ── Drop shadow ──────────────────────────────────────────
+      - ADD_SHADOW=true
+      - SHADOW_OFFSET_X=7
+      - SHADOW_OFFSET_Y=9
+      - SHADOW_BLUR=9
+      - SHADOW_OPACITY=175      # 0–255
+
+      # ── Float animation ──────────────────────────────────────
+      - FLOAT_AMPLITUDE=14.0    # Max pixels of vertical drift
+      - FLOAT_SPEED=0.55        # Oscillations per second
+
+      # ── Output quality ───────────────────────────────────────
+      - VIDEO_CRF=18            # 18=near-lossless  23=default  28=smaller
+      - VIDEO_PRESET=fast       # ultrafast/fast/medium/slow
+    restart: "no"               # Run once and exit
