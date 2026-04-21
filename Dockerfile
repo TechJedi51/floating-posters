@@ -1,16 +1,19 @@
 # ─────────────────────────────────────────────────────────────
 # floating-posters  —  Radarr poster overlay for Plex prerolls
 # ─────────────────────────────────────────────────────────────
-FROM python:3.12-slim
+FROM python:3.13-slim
 
 LABEL org.opencontainers.image.title="floating-posters"
 LABEL org.opencontainers.image.description="Overlays animated Radarr movie posters onto a background video for Plex prerolls"
 LABEL org.opencontainers.image.source="https://github.com/YOUR_USERNAME/floating-posters"
 
 # ── System dependencies ───────────────────────────────────────
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# apt-get upgrade pulls in patched openssl / libssl
+RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends \
         ffmpeg \
         fonts-dejavu-core \
+        openssl \
+        libssl3 \
     && rm -rf /var/lib/apt/lists/*
 
 # ── Python dependencies ───────────────────────────────────────
@@ -51,5 +54,11 @@ ENV SHOW_RELEASE_DATE=true
 ENV RELEASE_DATE_COLOR=#FFFFFF
 ENV RELEASE_DATE_SIZE=15
 ENV RELEASE_DATE_SHADOW=true
+ENV CPU_THREADS=2
+ENV BOTTOM_MESSAGE_SHOW=false
+ENV BOTTOM_MESSAGE=
+ENV BOTTOM_MESSAGE_ADD_DATE=true
+ENV BOTTOM_MESSAGE_COLOR=white
+ENV BOTTOM_MESSAGE_SIZE=15
 
 ENTRYPOINT ["python3", "floating_posters.py"]
