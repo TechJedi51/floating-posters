@@ -1,4 +1,4 @@
-# 🎬 floating-posters  `v1.5.0`
+# 🎬 floating-posters  `v1.6.0`
 
 A Docker container that fetches upcoming movie posters from **Radarr** and composites them as **floating, animated overlays** onto a background video — ready to drop into [NeXroll](https://github.com/JFLXCLOUD/NeXroll) as a Plex preroll.
 
@@ -109,7 +109,7 @@ All settings are environment variables. See [`.env.example`](.env.example) for t
 
 | Variable | Default | Description |
 |---|---|---|
-| `NUM_POSTERS` | `4` | Number of posters to overlay (1–6) |
+| `NUM_POSTERS` | `4` | Number of posters (1–10). 6+ triggers automatic 2-row layout. |
 | `UPCOMING_DAYS` | `180` | Days ahead to scan for upcoming releases |
 
 ### Poster appearance
@@ -118,6 +118,7 @@ All settings are environment variables. See [`.env.example`](.env.example) for t
 |---|---|---|
 | `POSTER_WIDTH` | `185` | Poster width in pixels (height auto-scales) |
 | `PADDING` | `28` | Pixels between posters |
+| `ROW_GAP` | `24` | Pixels between rows (2-row layout only) |
 | `VERTICAL_POS` | `0.52` | Row position: `0.0`=top · `0.5`=center · `1.0`=bottom |
 | `CORNER_RADIUS` | `10` | Rounded corner radius in pixels |
 
@@ -224,7 +225,7 @@ docker run --rm \
 On every push to `main`, GitHub Actions automatically:
 - Builds for `linux/amd64` and `linux/arm64` (Apple Silicon / Unraid)
 - Pushes `ghcr.io/TechJedi51/floating-posters:latest`
-- Tags version releases (`v1.5.0`) as `:1.5.0` and `:1.5`
+- Tags version releases (`v1.6.0`) as `:1.6.0` and `:1.6`
 
 The `GITHUB_TOKEN` is used automatically — no secrets to configure.
 
@@ -240,6 +241,13 @@ brew install ffmpeg   # macOS
 ---
 
 ## Changelog
+
+### v1.6.0
+- **Text wrapping**: top and bottom messages now word-wrap automatically if the text is too wide (wraps at 85% of video width, each line centred in the pill)
+- **Multi-row poster layout**: 6–10 posters automatically split into 2 rows — 6 (3+3), 7 (4+3), 8 (4+4), 9 (5+4), 10 (5+5); each row is independently centred horizontally; float phases spread evenly across all posters
+- Added `ROW_GAP` config for vertical spacing between rows
+- `NUM_POSTERS` max raised from 6 to **10**
+- Layout is logged at startup: e.g. `layout=5+5`
 
 ### v1.5.0
 - Added `*_BG_COLOR` and `*_BG_OPACITY` for all three text areas (release date, top message, bottom message)
