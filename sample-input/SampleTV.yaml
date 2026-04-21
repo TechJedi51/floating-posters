@@ -1,0 +1,52 @@
+tv:
+  - output=SampleTV
+
+  # ── Font ──────────────────────────────────────────────────
+  # Poppins-Bold, Poppins-Medium, Poppins-Regular,
+  # DejaVuSans-Bold, DejaVuSans, DejaVuSerif-Bold, DejaVuSerif,
+  # DejaVuSansMono-Bold, DejaVuSansCondensed-Bold,
+  # LiberationSans-Bold, LiberationSans, LiberationSerif-Bold, LiberationMono-Bold,
+  # FreeSansBold, FreeSerifBold, Carlito-Bold, Caladea-Bold
+  - FONT=Poppins-Bold
+
+  # ── Poster selection ───────────────────────────────────────
+  - NUM_POSTERS=10
+  - UPCOMING_DAYS=180
+
+  # ── Timing ────────────────────────────────────────────────
+  - START_TIME=14.0
+  - POSTER_DURATION=8.0
+  - FADE_DURATION=0.75
+
+  # ── Poster appearance ─────────────────────────────────────
+  - POSTER_WIDTH=250
+  - PADDING=28
+  - VERTICAL_POS=0.52
+
+  # ── Release date label ────────────────────────────────────
+  - SHOW_RELEASE_DATE=true
+  - RELEASE_DATE_COLOR=#FFFFFF
+  - RELEASE_DATE_SIZE=15
+  - RELEASE_DATE_SHADOW=true
+  - RELEASE_DATE_BG_COLOR=#000000    # Hex or CSS name
+  - RELEASE_DATE_BG_OPACITY=170      # 0=no background  255=solid
+
+  # ── Top message ───────────────────────────────────────────
+  - TOP_MESSAGE_SHOW=true
+  - TOP_MESSAGE=Coming Soon to My Plex
+  - TOP_MESSAGE_ADD_DATE=false
+  - TOP_MESSAGE_COLOR=white
+  - TOP_MESSAGE_SIZE=90
+  - TOP_MESSAGE_SHADOW=false
+  - TOP_MESSAGE_BG_COLOR=#000000
+  - TOP_MESSAGE_BG_OPACITY=0
+  
+  # ── Bottom message ────────────────────────────────────────
+  - BOTTOM_MESSAGE_SHOW=true
+  - BOTTOM_MESSAGE=Updated
+  - BOTTOM_MESSAGE_ADD_DATE=true
+  - BOTTOM_MESSAGE_COLOR=white
+  - BOTTOM_MESSAGE_SIZE=45
+  - BOTTOM_MESSAGE_SHADOW=true
+  - BOTTOM_MESSAGE_BG_COLOR=#000000
+  - BOTTOM_MESSAGE_BG_OPACITY=0
