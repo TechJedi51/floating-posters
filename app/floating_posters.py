@@ -29,7 +29,7 @@ except ImportError:
     sys.exit(1)
 
 
-VERSION = "1.4.0"
+VERSION = "1.5.0"
 
 # ══════════════════════════════════════════════════════════════
 #  CONFIG  —  all values read from environment variables
@@ -86,29 +86,35 @@ VIDEO_PRESET = os.getenv("VIDEO_PRESET", "fast")
 CPU_THREADS  = _int("CPU_THREADS", 2)
 
 # ── Release date label ────────────────────────────────────────
-SHOW_RELEASE_DATE   = _bool("SHOW_RELEASE_DATE",  True)
-RELEASE_DATE_COLOR  = os.getenv("RELEASE_DATE_COLOR",  "#FFFFFF")
-RELEASE_DATE_SIZE   = _int("RELEASE_DATE_SIZE",   15)
-RELEASE_DATE_SHADOW = _bool("RELEASE_DATE_SHADOW", True)
+SHOW_RELEASE_DATE      = _bool("SHOW_RELEASE_DATE",  True)
+RELEASE_DATE_COLOR     = os.getenv("RELEASE_DATE_COLOR",     "#FFFFFF")
+RELEASE_DATE_SIZE      = _int("RELEASE_DATE_SIZE",   15)
+RELEASE_DATE_SHADOW    = _bool("RELEASE_DATE_SHADOW", True)
+RELEASE_DATE_BG_COLOR  = os.getenv("RELEASE_DATE_BG_COLOR",  "#000000")
+RELEASE_DATE_BG_OPACITY= _int("RELEASE_DATE_BG_OPACITY", 170)
 
 # ── Font ─────────────────────────────────────────────────────
 FONT = os.getenv("FONT", "Poppins-Bold")
 
 # ── Bottom message ────────────────────────────────────────────
-BOTTOM_MESSAGE_SHOW     = _bool("BOTTOM_MESSAGE_SHOW", False)
-BOTTOM_MESSAGE          = os.getenv("BOTTOM_MESSAGE", "")
-BOTTOM_MESSAGE_ADD_DATE = _bool("BOTTOM_MESSAGE_ADD_DATE", True)
-BOTTOM_MESSAGE_COLOR    = os.getenv("BOTTOM_MESSAGE_COLOR", "white")
-BOTTOM_MESSAGE_SIZE     = _int("BOTTOM_MESSAGE_SIZE", 15)
-BOTTOM_MESSAGE_SHADOW   = _bool("BOTTOM_MESSAGE_SHADOW", False)
+BOTTOM_MESSAGE_SHOW       = _bool("BOTTOM_MESSAGE_SHOW", False)
+BOTTOM_MESSAGE            = os.getenv("BOTTOM_MESSAGE", "")
+BOTTOM_MESSAGE_ADD_DATE   = _bool("BOTTOM_MESSAGE_ADD_DATE", True)
+BOTTOM_MESSAGE_COLOR      = os.getenv("BOTTOM_MESSAGE_COLOR",      "white")
+BOTTOM_MESSAGE_SIZE       = _int("BOTTOM_MESSAGE_SIZE", 15)
+BOTTOM_MESSAGE_SHADOW     = _bool("BOTTOM_MESSAGE_SHADOW", False)
+BOTTOM_MESSAGE_BG_COLOR   = os.getenv("BOTTOM_MESSAGE_BG_COLOR",   "#000000")
+BOTTOM_MESSAGE_BG_OPACITY = _int("BOTTOM_MESSAGE_BG_OPACITY", 170)
 
 # ── Top message ───────────────────────────────────────────────
-TOP_MESSAGE_SHOW     = _bool("TOP_MESSAGE_SHOW", False)
-TOP_MESSAGE          = os.getenv("TOP_MESSAGE", "")
-TOP_MESSAGE_ADD_DATE = _bool("TOP_MESSAGE_ADD_DATE", False)
-TOP_MESSAGE_COLOR    = os.getenv("TOP_MESSAGE_COLOR", "white")
-TOP_MESSAGE_SIZE     = _int("TOP_MESSAGE_SIZE", 15)
-TOP_MESSAGE_SHADOW   = _bool("TOP_MESSAGE_SHADOW", False)
+TOP_MESSAGE_SHOW       = _bool("TOP_MESSAGE_SHOW", False)
+TOP_MESSAGE            = os.getenv("TOP_MESSAGE", "")
+TOP_MESSAGE_ADD_DATE   = _bool("TOP_MESSAGE_ADD_DATE", False)
+TOP_MESSAGE_COLOR      = os.getenv("TOP_MESSAGE_COLOR",      "white")
+TOP_MESSAGE_SIZE       = _int("TOP_MESSAGE_SIZE", 15)
+TOP_MESSAGE_SHADOW     = _bool("TOP_MESSAGE_SHADOW", False)
+TOP_MESSAGE_BG_COLOR   = os.getenv("TOP_MESSAGE_BG_COLOR",   "#000000")
+TOP_MESSAGE_BG_OPACITY = _int("TOP_MESSAGE_BG_OPACITY", 170)
 
 
 # ══════════════════════════════════════════════════════════════
@@ -252,13 +258,15 @@ def _parse_color(color_str: str) -> tuple:
         return (255, 255, 255)
 
 
-def make_text_image(text: str, font_size: int, color: str, shadow: bool) -> Image.Image:
+def make_text_image(text: str, font_size: int, color: str, shadow: bool,
+                    bg_color: str = "#000000", bg_opacity: int = 170) -> Image.Image:
     """
-    Render text as a PIL RGBA image with a semi-transparent rounded pill
-    background. Readable against any video background colour.
+    Render text as a PIL RGBA image.
+    bg_opacity=0 disables the pill background entirely.
     """
     font       = load_font(font_size)
     text_color = _parse_color(color)
+    bg_rgb     = _parse_color(bg_color)
 
     # Measure on a generously-sized scratch canvas
     scratch = Image.new("RGBA", (4000, font_size * 6), (0, 0, 0, 0))
@@ -275,9 +283,10 @@ def make_text_image(text: str, font_size: int, color: str, shadow: bool) -> Imag
     img  = Image.new("RGBA", (img_w, img_h), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
 
-    # Semi-transparent dark pill
-    draw.rounded_rectangle([(0, 0), (img_w - 1, img_h - 1)],
-                            radius=6, fill=(0, 0, 0, 170))
+    # Pill background (skip if opacity is 0)
+    if bg_opacity > 0:
+        draw.rounded_rectangle([(0, 0), (img_w - 1, img_h - 1)],
+                                radius=6, fill=(*bg_rgb, bg_opacity))
 
     # Compensate for font bearing offsets so text sits inside the pill
     tx = h_pad - bbox[0]
@@ -389,7 +398,8 @@ def make_poster_clip(pil_img, pos_x, base_y, float_phase):
 def make_date_clip(date_text, center_x, poster_bottom_y, float_phase):
     """Date label that floats in sync with its poster, 6px below it."""
     img   = make_text_image(date_text, RELEASE_DATE_SIZE,
-                            RELEASE_DATE_COLOR, RELEASE_DATE_SHADOW)
+                            RELEASE_DATE_COLOR, RELEASE_DATE_SHADOW,
+                            RELEASE_DATE_BG_COLOR, RELEASE_DATE_BG_OPACITY)
     pos_x = center_x - img.width // 2
     gap   = 6
 
@@ -403,7 +413,8 @@ def make_date_clip(date_text, center_x, poster_bottom_y, float_phase):
 def make_bottom_message_clip(message, vid_w, vid_h):
     """Centered, non-floating message 24px from the bottom edge."""
     img   = make_text_image(message, BOTTOM_MESSAGE_SIZE,
-                            BOTTOM_MESSAGE_COLOR, shadow=BOTTOM_MESSAGE_SHADOW)
+                            BOTTOM_MESSAGE_COLOR, shadow=BOTTOM_MESSAGE_SHADOW,
+                            bg_color=BOTTOM_MESSAGE_BG_COLOR, bg_opacity=BOTTOM_MESSAGE_BG_OPACITY)
     pos_x = (vid_w - img.width) // 2
     pos_y = vid_h - img.height - 24
     return _rgba_to_clip(img, pos_x, pos_y, START_TIME, POSTER_DURATION)
@@ -412,7 +423,8 @@ def make_bottom_message_clip(message, vid_w, vid_h):
 def make_top_message_clip(message, vid_w, vid_h):
     """Centered, non-floating message 24px from the top edge."""
     img   = make_text_image(message, TOP_MESSAGE_SIZE,
-                            TOP_MESSAGE_COLOR, shadow=TOP_MESSAGE_SHADOW)
+                            TOP_MESSAGE_COLOR, shadow=TOP_MESSAGE_SHADOW,
+                            bg_color=TOP_MESSAGE_BG_COLOR, bg_opacity=TOP_MESSAGE_BG_OPACITY)
     pos_x = (vid_w - img.width) // 2
     pos_y = 24
     return _rgba_to_clip(img, pos_x, pos_y, START_TIME, POSTER_DURATION)

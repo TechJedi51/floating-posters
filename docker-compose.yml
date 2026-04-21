@@ -36,6 +36,8 @@ services:
       - RELEASE_DATE_COLOR=#FFFFFF
       - RELEASE_DATE_SIZE=15
       - RELEASE_DATE_SHADOW=true
+      - RELEASE_DATE_BG_COLOR=#000000    # Hex or CSS name
+      - RELEASE_DATE_BG_OPACITY=170      # 0=no background  255=solid
 
       # ── Top message ───────────────────────────────────────────
       - TOP_MESSAGE_SHOW=false
@@ -44,6 +46,8 @@ services:
       - TOP_MESSAGE_COLOR=white
       - TOP_MESSAGE_SIZE=15
       - TOP_MESSAGE_SHADOW=false
+      - TOP_MESSAGE_BG_COLOR=#000000
+      - TOP_MESSAGE_BG_OPACITY=170
 
       # ── Bottom message ────────────────────────────────────────
       - BOTTOM_MESSAGE_SHOW=true
@@ -52,6 +56,8 @@ services:
       - BOTTOM_MESSAGE_COLOR=white
       - BOTTOM_MESSAGE_SIZE=15
       - BOTTOM_MESSAGE_SHADOW=false
+      - BOTTOM_MESSAGE_BG_COLOR=#000000
+      - BOTTOM_MESSAGE_BG_OPACITY=170
 
       # ── CPU throttle ──────────────────────────────────────────
       - CPU_THREADS=2
