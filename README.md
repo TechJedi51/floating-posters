@@ -1,4 +1,4 @@
-# 🎬 floating-posters
+# 🎬 floating-posters  `v1.1.0`
 
 A Docker container that fetches upcoming movie posters from **Radarr** and composites them as **floating, animated overlays** onto a background video — ready to drop into [NeXroll](https://github.com/JFLXCLOUD/NeXroll) as a Plex preroll.
 
@@ -12,7 +12,8 @@ A Docker container that fetches upcoming movie posters from **Radarr** and compo
 2. Downloads poster art for the selected movies
 3. Composites 1–6 posters as floating overlays on your background video
 4. Each poster group fades in, floats gently (staggered sine-wave motion), and fades out
-5. Saves the finished video to your output directory
+5. Optionally renders the release date beneath each poster
+6. Saves the finished video to your output directory
 
 ---
 
@@ -56,6 +57,8 @@ services:
       - NUM_POSTERS=5
       - START_TIME=3.0
       - POSTER_DURATION=9.0
+      - SHOW_RELEASE_DATE=true
+      - RELEASE_DATE_COLOR=#FFFFFF
     restart: "no"
 ```
 
@@ -71,24 +74,75 @@ docker compose run --rm floating-posters
 
 All settings are environment variables. See [`.env.example`](.env.example) for the full list with descriptions.
 
+### Radarr connection
+
 | Variable | Default | Description |
 |---|---|---|
 | `RADARR_URL` | `http://localhost:7878` | Radarr base URL |
 | `RADARR_API_KEY` | *(required)* | Radarr → Settings → General → API Key |
+
+### File paths
+
+| Variable | Default | Description |
+|---|---|---|
 | `INPUT_VIDEO` | `/input/background.mp4` | Background video path inside container |
 | `OUTPUT_VIDEO` | `/output/output.mp4` | Output path inside container |
+
+### Timing
+
+| Variable | Default | Description |
+|---|---|---|
 | `START_TIME` | `2.0` | Seconds into video where posters first appear |
 | `POSTER_DURATION` | `8.0` | How long posters are visible (max `10.0`) |
-| `FADE_DURATION` | `0.75` | Fade in/out seconds |
+| `FADE_DURATION` | `0.75` | Fade in/out duration in seconds |
+
+### Poster selection
+
+| Variable | Default | Description |
+|---|---|---|
 | `NUM_POSTERS` | `4` | Number of posters to overlay (1–6) |
 | `UPCOMING_DAYS` | `180` | Days ahead to scan for upcoming releases |
+
+### Poster appearance
+
+| Variable | Default | Description |
+|---|---|---|
 | `POSTER_WIDTH` | `185` | Poster width in pixels (height auto-scales) |
 | `PADDING` | `28` | Pixels between posters |
 | `VERTICAL_POS` | `0.52` | Row position: `0.0`=top · `0.5`=center · `1.0`=bottom |
-| `FLOAT_AMPLITUDE` | `14.0` | Pixels of vertical drift (sine wave) |
-| `FLOAT_SPEED` | `0.55` | Oscillations per second (lower = dreamier) |
+| `CORNER_RADIUS` | `10` | Rounded corner radius in pixels |
+
+### Drop shadow
+
+| Variable | Default | Description |
+|---|---|---|
 | `ADD_SHADOW` | `true` | Drop shadow behind posters |
-| `VIDEO_CRF` | `18` | FFmpeg CRF: `18`=near-lossless · `23`=default · `28`=smaller |
+| `SHADOW_OFFSET_X` | `7` | Horizontal shadow offset in pixels |
+| `SHADOW_OFFSET_Y` | `9` | Vertical shadow offset in pixels |
+| `SHADOW_BLUR` | `9` | Shadow softness (Gaussian blur radius) |
+| `SHADOW_OPACITY` | `175` | Shadow darkness: `0`=invisible · `255`=solid black |
+
+### Release date label *(new in v1.1.0)*
+
+| Variable | Default | Description |
+|---|---|---|
+| `SHOW_RELEASE_DATE` | `true` | Show release date below each poster |
+| `RELEASE_DATE_COLOR` | `#FFFFFF` | Text color — hex (`#FF6B6B`) or CSS name (`white`, `gold`) |
+| `RELEASE_DATE_SIZE` | `15` | Font size in pixels |
+| `RELEASE_DATE_SHADOW` | `true` | Drop shadow behind the date text |
+
+### Float animation
+
+| Variable | Default | Description |
+|---|---|---|
+| `FLOAT_AMPLITUDE` | `14.0` | Max pixels of vertical drift (sine wave) |
+| `FLOAT_SPEED` | `0.55` | Oscillations per second — lower = slower, dreamier |
+
+### Output encoding
+
+| Variable | Default | Description |
+|---|---|---|
+| `VIDEO_CRF` | `18` | FFmpeg CRF: `18`=near-lossless · `23`=default · `28`=smaller file |
 | `VIDEO_PRESET` | `fast` | FFmpeg preset: `ultrafast`/`fast`/`medium`/`slow` |
 
 ---
@@ -127,7 +181,7 @@ docker run --rm \
 On every push to `main`, GitHub Actions automatically:
 - Builds for `linux/amd64` and `linux/arm64` (Apple Silicon / Unraid)
 - Pushes `ghcr.io/techjedi51/floating-posters:latest`
-- Tags version releases (`v1.0.0`) as `:1.0.0` and `:1.0`
+- Tags version releases (`v1.1.0`) as `:1.1.0` and `:1.1`
 
 The `GITHUB_TOKEN` is used automatically — no secrets to configure.
 
@@ -139,6 +193,23 @@ The `GITHUB_TOKEN` is used automatically — no secrets to configure.
 pip install moviepy pillow requests numpy
 brew install ffmpeg   # macOS
 ```
+
+---
+
+## Changelog
+
+### v1.1.0
+- Added release date label below each poster (`SHOW_RELEASE_DATE`, `RELEASE_DATE_COLOR`, `RELEASE_DATE_SIZE`, `RELEASE_DATE_SHADOW`)
+- Fixed `set_opacity` TypeError with moviepy 1.0.3 — replaced with `VideoClip` mask for proper per-frame fade with alpha preservation
+- Poster alpha channel (rounded corners, drop shadow) now correctly composited through the fade animation
+
+### v1.0.0
+- Initial release
+- Radarr API integration for upcoming movie poster fetching
+- Floating sine-wave animation with staggered phase per poster
+- Configurable fade in/out, drop shadow, rounded corners
+- Multi-arch Docker image (amd64 + arm64)
+- Full environment variable configuration
 
 ---
 
