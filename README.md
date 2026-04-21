@@ -1,4 +1,4 @@
-# 🎬 floating-posters  `v1.9.0`
+# 🎬 floating-posters  `v1.9.1`
 
 A Docker container that fetches upcoming movie and TV posters from **Radarr** and **Sonarr**, and composites them as **floating, animated overlays** onto background videos — ready to drop into [NeXroll](https://github.com/JFLXCLOUD/NeXroll) as Plex prerolls.
 
@@ -14,7 +14,7 @@ A Docker container that fetches upcoming movie and TV posters from **Radarr** an
    - `movie:` → fetches posters from **Radarr**
    - `tv:` → fetches posters from **Sonarr**
 4. Each video is processed independently using its yaml settings
-5. Output files are saved to `/output` named by the `output=` field in the yaml
+5. Output files are saved to `/output` (or `OUTPUT_DIR` if set) named by the `output=` field in the yaml
 
 ---
 
@@ -52,20 +52,20 @@ services:
     image: ghcr.io/TechJedi51/floating-posters:latest
     volumes:
       - /path/to/source:/input
-      - /path/to/output:/output
+      - /path/to/output:/output   # see Output section below for NeXroll shared volume alternative
     environment:
       - RADARR_URL=http://192.168.1.100:7878
       - RADARR_API_KEY=${RADARR_API_KEY}
       - SONARR_URL=http://192.168.1.100:8989
       - SONARR_API_KEY=${SONARR_API_KEY}
-      # NeXroll registration (optional)
-      - NEXROLL_URL=http://192.168.1.100:9393
+      - NEXROLL_URL=http://192.168.1.100:9393   # optional
       - NEXROLL_API_KEY=${NEXROLL_API_KEY}
-      - NEXROLL_OUTPUT_PATH=/host/path/to/output
+      - NEXROLL_OUTPUT_PATH=/path/to/output     # optional — see Output section
+      - RERUN_INTERVAL=24h
       - CPU_THREADS=2
       - VIDEO_CRF=18
       - VIDEO_PRESET=fast
-    restart: "no"
+    restart: unless-stopped
     deploy:
       resources:
         limits:
@@ -216,7 +216,44 @@ Requires `NEXROLL_URL`, `NEXROLL_API_KEY`, and `NEXROLL_OUTPUT_PATH` in docker-c
 | `NEXROLL_CREATE_CATEGORY` | `true` | Create the category in NeXroll if it doesn't exist |
 | `NEXROLL_APPLY_TO_PLEX` | `false` | Immediately apply the category to Plex after registering |
 
-**`NEXROLL_OUTPUT_PATH` explained:** NeXroll runs on your host machine and registers prerolls by their filesystem path. Since this container writes to `/output` internally, you need to tell it what path NeXroll sees that folder as on the host. For example if your docker-compose volume is `- /mnt/media/prerolls/output:/output`, set `NEXROLL_OUTPUT_PATH=/mnt/media/prerolls/output`.
+---
+
+## Output configuration
+
+### Standalone (no NeXroll)
+
+Map any host folder to `/output`. Videos are written there directly.
+
+```yaml
+volumes:
+  - /path/to/output:/output
+```
+
+`OUTPUT_DIR` defaults to `/output` and does not need to be set unless you want to write into a subfolder of the mounted volume.
+
+### Integrated with NeXroll (shared Docker volume)
+
+When floating-posters and NeXroll run in the same stack, mount the same named volume that NeXroll uses and set `OUTPUT_DIR` to point at NeXroll's preroll subfolder. Set `NEXROLL_OUTPUT_PATH` to the same path so NeXroll can locate the files when registering them.
+
+```yaml
+  floating-posters:
+    volumes:
+      - /path/to/source:/input
+      - type: volume
+        source: plexserver_nexroll      # same volume NeXroll uses
+        target: /nexroll_media
+        volume:
+          nocopy: true
+    environment:
+      - OUTPUT_DIR=/nexroll_media/Pre-Rolls
+      - NEXROLL_OUTPUT_PATH=/nexroll_media/Pre-Rolls
+      - NEXROLL_URL=http://nexroll:9393
+      - NEXROLL_API_KEY=${NEXROLL_API_KEY}
+```
+
+With this setup there is no need for `NEXROLL_OUTPUT_PATH` to translate between host and container paths — both containers share the same volume and see the same path.
+
+**`NEXROLL_OUTPUT_PATH` in standalone mode:** If floating-posters and NeXroll are in separate stacks (not sharing a volume), `NEXROLL_OUTPUT_PATH` must be set to the host filesystem path that NeXroll can access. For example if your volume is `- /mnt/media/prerolls:/output`, set `NEXROLL_OUTPUT_PATH=/mnt/media/prerolls`.
 
 ### Float animation
 
@@ -296,11 +333,15 @@ docker run --rm \
 On every push to `main`, GitHub Actions automatically:
 - Builds for `linux/amd64` and `linux/arm64` (Apple Silicon / Unraid)
 - Pushes `ghcr.io/TechJedi51/floating-posters:latest`
-- Tags version releases (`v1.9.0`) as `:1.9.0` and `:1.9`
+- Tags version releases (`v1.9.1`) as `:1.9.1` and `:1.9`
 
 ---
 
 ## Changelog
+
+### v1.9.1
+- Clarified output configuration in `docker-compose.yml` and README — documented both standalone (`/output` bind mount) and NeXroll shared volume (`OUTPUT_DIR` + `NEXROLL_OUTPUT_PATH`) setups
+- `OUTPUT_DIR` env var documented as the correct way to redirect output when using a shared volume with NeXroll
 
 ### v1.9.0
 - **Built-in scheduler**: `RERUN_INTERVAL` env var (e.g. `24h`, `12h`, `6h`, `1d`, `30m`) keeps the container running and re-executes on a repeating schedule
