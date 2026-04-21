@@ -2,68 +2,17 @@ services:
   floating-posters:
     image: ghcr.io/TechJedi51/floating-posters:latest
     volumes:
-      - ${ROOT}/Docker/floating-posters/background.mov:/input/background.mp4:ro
-      - ${ROOT}/Docker/floating-posters/output:/output
+      - /path/to/source:/input      # folder containing .mov/.mp4 + .yaml pairs
+      - /path/to/output:/output     # finished videos are written here
     environment:
-      # ── Required ───────────────────────────────────────────────
-      - RADARR_URL=http://your-radarr-host:7878
+      # ── Required ──────────────────────────────────────────────
+      - RADARR_URL=http://10.0.216.15:7878
       - RADARR_API_KEY=${RADARR_API_KEY}
+      - SONARR_URL=http://10.0.216.15:8989     # required only if using tv: yaml files
+      - SONARR_API_KEY=${SONARR_API_KEY}
 
-      # ── Font ──────────────────────────────────────────────────
-      # Poppins-Bold, Poppins-Medium, Poppins-Regular,
-      # DejaVuSans-Bold, DejaVuSans, DejaVuSerif-Bold, DejaVuSerif,
-      # DejaVuSansMono-Bold, DejaVuSansCondensed-Bold,
-      # LiberationSans-Bold, LiberationSans, LiberationSerif-Bold, LiberationMono-Bold,
-      # FreeSansBold, FreeSerifBold, Carlito-Bold, Caladea-Bold
-      - FONT=Poppins-Bold
-
-      # ── Timing ────────────────────────────────────────────────
-      - START_TIME=3.0
-      - POSTER_DURATION=9.0
-      - FADE_DURATION=0.75
-
-      # ── Poster selection ───────────────────────────────────────
-      - NUM_POSTERS=5           # 1–10  (6+ triggers 2-row layout)
-      - UPCOMING_DAYS=180
-
-      # ── Poster appearance ─────────────────────────────────────
-      - POSTER_WIDTH=250
-      - PADDING=28
-      - ROW_GAP=24              # pixels between rows when 2-row layout is used
-      - VERTICAL_POS=0.52
-
-      # ── Release date label ────────────────────────────────────
-      - SHOW_RELEASE_DATE=true
-      - RELEASE_DATE_COLOR=#FFFFFF
-      - RELEASE_DATE_SIZE=15
-      - RELEASE_DATE_SHADOW=true
-      - RELEASE_DATE_BG_COLOR=#000000    # Hex or CSS name
-      - RELEASE_DATE_BG_OPACITY=170      # 0=no background  255=solid
-
-      # ── Top message ───────────────────────────────────────────
-      - TOP_MESSAGE_SHOW=false
-      - TOP_MESSAGE=Coming Soon
-      - TOP_MESSAGE_ADD_DATE=false
-      - TOP_MESSAGE_COLOR=white
-      - TOP_MESSAGE_SIZE=15
-      - TOP_MESSAGE_SHADOW=false
-      - TOP_MESSAGE_BG_COLOR=#000000
-      - TOP_MESSAGE_BG_OPACITY=170
-
-      # ── Bottom message ────────────────────────────────────────
-      - BOTTOM_MESSAGE_SHOW=true
-      - BOTTOM_MESSAGE=Updated
-      - BOTTOM_MESSAGE_ADD_DATE=true
-      - BOTTOM_MESSAGE_COLOR=white
-      - BOTTOM_MESSAGE_SIZE=15
-      - BOTTOM_MESSAGE_SHADOW=false
-      - BOTTOM_MESSAGE_BG_COLOR=#000000
-      - BOTTOM_MESSAGE_BG_OPACITY=170
-
-      # ── CPU throttle ──────────────────────────────────────────
+      # ── CPU & quality ──────────────────────────────────────────
       - CPU_THREADS=2
-
-      # ── Output quality ────────────────────────────────────────
       - VIDEO_CRF=18
       - VIDEO_PRESET=fast
 

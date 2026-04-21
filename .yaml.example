@@ -1,0 +1,77 @@
+# ─────────────────────────────────────────────────────────────
+# floating-posters  —  per-video yaml reference
+#
+# Name this file the same as your video file:
+#   MyBackground.mov  →  MyBackground.yaml
+#
+# Top-level key:
+#   movie:  →  fetches posters from Radarr
+#   tv:     →  fetches posters from Sonarr
+# ─────────────────────────────────────────────────────────────
+
+movie:
+  # Output filename (saved to /output as <output>.mp4)
+  - output=MyPreroll
+
+  # ── Font ────────────────────────────────────────────────────
+  # Poppins-Bold, Poppins-Medium, Poppins-Regular,
+  # DejaVuSans-Bold, DejaVuSans, DejaVuSerif-Bold, DejaVuSerif,
+  # DejaVuSansMono-Bold, DejaVuSansCondensed-Bold,
+  # LiberationSans-Bold, LiberationSans, LiberationSerif-Bold, LiberationMono-Bold,
+  # FreeSansBold, FreeSerifBold, Carlito-Bold, Caladea-Bold
+  - FONT=Poppins-Bold
+
+  # ── Poster selection ────────────────────────────────────────
+  - NUM_POSTERS=5          # 1–10  (6+ triggers 2-row layout)
+  - UPCOMING_DAYS=180
+
+  # ── Timing ──────────────────────────────────────────────────
+  - START_TIME=3.0
+  - POSTER_DURATION=9.0
+  - FADE_DURATION=0.75
+
+  # ── Poster appearance ────────────────────────────────────────
+  - POSTER_WIDTH=250
+  - PADDING=28
+  - ROW_GAP=24             # pixels between rows (2-row layout only)
+  - VERTICAL_POS=0.52      # 0.0=top  0.5=center  1.0=bottom
+  - CORNER_RADIUS=10
+
+  # ── Drop shadow ──────────────────────────────────────────────
+  - ADD_SHADOW=true
+  - SHADOW_OFFSET_X=7
+  - SHADOW_OFFSET_Y=9
+  - SHADOW_BLUR=9
+  - SHADOW_OPACITY=175
+
+  # ── Release date label ───────────────────────────────────────
+  - SHOW_RELEASE_DATE=true
+  - RELEASE_DATE_COLOR=#FFFFFF
+  - RELEASE_DATE_SIZE=15
+  - RELEASE_DATE_SHADOW=true
+  - RELEASE_DATE_BG_COLOR=#000000    # pill background color
+  - RELEASE_DATE_BG_OPACITY=170      # 0=no background  255=solid
+
+  # ── Top message ──────────────────────────────────────────────
+  - TOP_MESSAGE_SHOW=false
+  - TOP_MESSAGE=Coming Soon
+  - TOP_MESSAGE_ADD_DATE=false
+  - TOP_MESSAGE_COLOR=white
+  - TOP_MESSAGE_SIZE=15
+  - TOP_MESSAGE_SHADOW=false
+  - TOP_MESSAGE_BG_COLOR=#000000
+  - TOP_MESSAGE_BG_OPACITY=170
+
+  # ── Bottom message ───────────────────────────────────────────
+  - BOTTOM_MESSAGE_SHOW=false
+  - BOTTOM_MESSAGE=Updated
+  - BOTTOM_MESSAGE_ADD_DATE=true
+  - BOTTOM_MESSAGE_COLOR=white
+  - BOTTOM_MESSAGE_SIZE=15
+  - BOTTOM_MESSAGE_SHADOW=false
+  - BOTTOM_MESSAGE_BG_COLOR=#000000
+  - BOTTOM_MESSAGE_BG_OPACITY=170
+
+  # ── Float animation ──────────────────────────────────────────
+  - FLOAT_AMPLITUDE=14.0
+  - FLOAT_SPEED=0.55
