@@ -90,4 +90,11 @@ ENV TOP_MESSAGE_SHADOW=false
 ENV TOP_MESSAGE_BG_COLOR=#000000
 ENV TOP_MESSAGE_BG_OPACITY=170
 
-ENTRYPOINT ["python3", "floating_posters.py"]
+# ── Scheduler ─────────────────────────────────────────────────
+# RERUN_INTERVAL: leave unset for single run, or set to e.g. 6h, 12h, 24h, 1d
+ENV RERUN_INTERVAL=
+
+COPY app/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+ENTRYPOINT ["/entrypoint.sh"]
