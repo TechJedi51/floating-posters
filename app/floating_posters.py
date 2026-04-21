@@ -29,7 +29,7 @@ except ImportError:
     sys.exit(1)
 
 
-VERSION = "1.3.0"
+VERSION = "1.4.0"
 
 # ══════════════════════════════════════════════════════════════
 #  CONFIG  —  all values read from environment variables
@@ -91,12 +91,24 @@ RELEASE_DATE_COLOR  = os.getenv("RELEASE_DATE_COLOR",  "#FFFFFF")
 RELEASE_DATE_SIZE   = _int("RELEASE_DATE_SIZE",   15)
 RELEASE_DATE_SHADOW = _bool("RELEASE_DATE_SHADOW", True)
 
+# ── Font ─────────────────────────────────────────────────────
+FONT = os.getenv("FONT", "Poppins-Bold")
+
 # ── Bottom message ────────────────────────────────────────────
 BOTTOM_MESSAGE_SHOW     = _bool("BOTTOM_MESSAGE_SHOW", False)
 BOTTOM_MESSAGE          = os.getenv("BOTTOM_MESSAGE", "")
 BOTTOM_MESSAGE_ADD_DATE = _bool("BOTTOM_MESSAGE_ADD_DATE", True)
 BOTTOM_MESSAGE_COLOR    = os.getenv("BOTTOM_MESSAGE_COLOR", "white")
 BOTTOM_MESSAGE_SIZE     = _int("BOTTOM_MESSAGE_SIZE", 15)
+BOTTOM_MESSAGE_SHADOW   = _bool("BOTTOM_MESSAGE_SHADOW", False)
+
+# ── Top message ───────────────────────────────────────────────
+TOP_MESSAGE_SHOW     = _bool("TOP_MESSAGE_SHOW", False)
+TOP_MESSAGE          = os.getenv("TOP_MESSAGE", "")
+TOP_MESSAGE_ADD_DATE = _bool("TOP_MESSAGE_ADD_DATE", False)
+TOP_MESSAGE_COLOR    = os.getenv("TOP_MESSAGE_COLOR", "white")
+TOP_MESSAGE_SIZE     = _int("TOP_MESSAGE_SIZE", 15)
+TOP_MESSAGE_SHADOW   = _bool("TOP_MESSAGE_SHADOW", False)
 
 
 # ══════════════════════════════════════════════════════════════
@@ -171,25 +183,61 @@ def download_poster(movie: dict, dest_path: str) -> bool:
 #  FONTS & TEXT RENDERING
 # ══════════════════════════════════════════════════════════════
 
-_FONT_PATHS = [
-    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-    "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
-    "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf",
-    "/usr/share/fonts/truetype/ubuntu/Ubuntu-B.ttf",
-    "/System/Library/Fonts/Helvetica.ttc",
-    "/System/Library/Fonts/HelveticaNeue.ttc",
-    "/Library/Fonts/Arial Bold.ttf",
-]
+# All fonts available in the container.
+# Set FONT=<name> in docker-compose to pick one.
+FONT_MAP = {
+    # ── Poppins (Google Fonts — downloaded in Dockerfile) ─────
+    "Poppins-Bold":             "/usr/share/fonts/truetype/google-fonts/Poppins-Bold.ttf",
+    "Poppins-Medium":           "/usr/share/fonts/truetype/google-fonts/Poppins-Medium.ttf",
+    "Poppins-Regular":          "/usr/share/fonts/truetype/google-fonts/Poppins-Regular.ttf",
+    # ── DejaVu (fonts-dejavu-core) ────────────────────────────
+    "DejaVuSans-Bold":          "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+    "DejaVuSans":               "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    "DejaVuSerif-Bold":         "/usr/share/fonts/truetype/dejavu/DejaVuSerif-Bold.ttf",
+    "DejaVuSerif":              "/usr/share/fonts/truetype/dejavu/DejaVuSerif.ttf",
+    "DejaVuSansMono-Bold":      "/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf",
+    "DejaVuSansCondensed-Bold": "/usr/share/fonts/truetype/dejavu/DejaVuSansCondensed-Bold.ttf",
+    # ── Liberation (fonts-liberation) ─────────────────────────
+    "LiberationSans-Bold":      "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+    "LiberationSans":           "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+    "LiberationSerif-Bold":     "/usr/share/fonts/truetype/liberation/LiberationSerif-Bold.ttf",
+    "LiberationMono-Bold":      "/usr/share/fonts/truetype/liberation/LiberationMono-Bold.ttf",
+    # ── FreeFonts (fonts-freefont-ttf) ────────────────────────
+    "FreeSansBold":             "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf",
+    "FreeSerifBold":            "/usr/share/fonts/truetype/freefont/FreeSerifBold.ttf",
+    # ── Crosextra (fonts-crosextra-*) ─────────────────────────
+    "Carlito-Bold":             "/usr/share/fonts/truetype/crosextra/Carlito-Bold.ttf",
+    "Caladea-Bold":             "/usr/share/fonts/truetype/crosextra/Caladea-Bold.ttf",
+    # ── macOS fallbacks (running locally without Docker) ──────
+    "Helvetica":                "/System/Library/Fonts/Helvetica.ttc",
+    "HelveticaNeue":            "/System/Library/Fonts/HelveticaNeue.ttc",
+}
 
 def load_font(size: int) -> ImageFont.ImageFont:
-    for path in _FONT_PATHS:
+    """Load the font named by FONT env var, falling back through available fonts."""
+    # Try the requested font first
+    if FONT in FONT_MAP:
+        path = FONT_MAP[FONT]
         if Path(path).exists():
             try:
                 font = ImageFont.truetype(path, size)
-                print(f"  [font] {Path(path).name}  size={size}")
+                print(f"  [font] {FONT}  size={size}")
+                return font
+            except Exception as e:
+                print(f"  [font] {FONT} failed ({e}), trying fallbacks...")
+        else:
+            print(f"  [font] {FONT} not found at {path}, trying fallbacks...")
+
+    # Walk the full map in order until one loads
+    for name, path in FONT_MAP.items():
+        if Path(path).exists():
+            try:
+                font = ImageFont.truetype(path, size)
+                print(f"  [font] {name} (fallback)  size={size}")
                 return font
             except Exception:
                 continue
+
     print(f"  [font] PIL built-in fallback  size={size}")
     try:
         return ImageFont.load_default(size=size)
@@ -355,9 +403,18 @@ def make_date_clip(date_text, center_x, poster_bottom_y, float_phase):
 def make_bottom_message_clip(message, vid_w, vid_h):
     """Centered, non-floating message 24px from the bottom edge."""
     img   = make_text_image(message, BOTTOM_MESSAGE_SIZE,
-                            BOTTOM_MESSAGE_COLOR, shadow=True)
+                            BOTTOM_MESSAGE_COLOR, shadow=BOTTOM_MESSAGE_SHADOW)
     pos_x = (vid_w - img.width) // 2
     pos_y = vid_h - img.height - 24
+    return _rgba_to_clip(img, pos_x, pos_y, START_TIME, POSTER_DURATION)
+
+
+def make_top_message_clip(message, vid_w, vid_h):
+    """Centered, non-floating message 24px from the top edge."""
+    img   = make_text_image(message, TOP_MESSAGE_SIZE,
+                            TOP_MESSAGE_COLOR, shadow=TOP_MESSAGE_SHADOW)
+    pos_x = (vid_w - img.width) // 2
+    pos_y = 24
     return _rgba_to_clip(img, pos_x, pos_y, START_TIME, POSTER_DURATION)
 
 
@@ -402,8 +459,18 @@ def composite_video(poster_data: list, bg_path: str, out_path: str):
             now     = datetime.now()
             datestr = f"{now.strftime('%B')} {now.day}, {now.year}"
             msg     = f"{msg}  {datestr}".strip() if msg else datestr
-        print(f"  [msg] '{msg}'")
+        print(f"  [bottom msg] '{msg}'")
         all_clips.append(make_bottom_message_clip(msg, vid_w, vid_h))
+
+    # Top message
+    if TOP_MESSAGE_SHOW and (TOP_MESSAGE or TOP_MESSAGE_ADD_DATE):
+        msg = TOP_MESSAGE
+        if TOP_MESSAGE_ADD_DATE:
+            now     = datetime.now()
+            datestr = f"{now.strftime('%B')} {now.day}, {now.year}"
+            msg     = f"{msg}  {datestr}".strip() if msg else datestr
+        print(f"  [top msg] '{msg}'")
+        all_clips.append(make_top_message_clip(msg, vid_w, vid_h))
 
     final = CompositeVideoClip(all_clips).set_duration(bg.duration)
 
