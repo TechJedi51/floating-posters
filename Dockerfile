@@ -10,6 +10,7 @@ LABEL org.opencontainers.image.source="https://github.com/YOUR_USERNAME/floating
 # ── System dependencies ───────────────────────────────────────
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ffmpeg \
+        fonts-dejavu-core \
     && rm -rf /var/lib/apt/lists/*
 
 # ── Python dependencies ───────────────────────────────────────
@@ -46,5 +47,9 @@ ENV FLOAT_AMPLITUDE=14.0
 ENV FLOAT_SPEED=0.55
 ENV VIDEO_CRF=18
 ENV VIDEO_PRESET=fast
+ENV SHOW_RELEASE_DATE=true
+ENV RELEASE_DATE_COLOR=#FFFFFF
+ENV RELEASE_DATE_SIZE=15
+ENV RELEASE_DATE_SHADOW=true
 
 ENTRYPOINT ["python3", "floating_posters.py"]
