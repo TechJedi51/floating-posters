@@ -3,13 +3,22 @@ services:
     image: ghcr.io/TechJedi51/floating-posters:latest
     volumes:
       - /path/to/source:/input      # folder containing .mov/.mp4 + .yaml pairs
-      - /path/to/output:/output     # finished videos are written here
+      - /path/to/output:/output     # finished videos written here
     environment:
       # ── Required ──────────────────────────────────────────────
       - RADARR_URL=http://10.0.216.15:7878
       - RADARR_API_KEY=${RADARR_API_KEY}
-      - SONARR_URL=http://10.0.216.15:8989     # required only if using tv: yaml files
+      - SONARR_URL=http://10.0.216.15:8989
       - SONARR_API_KEY=${SONARR_API_KEY}
+
+      # ── NeXroll (optional — enables preroll registration) ──────
+      - NEXROLL_URL=http://10.0.216.15:9393
+      - NEXROLL_API_KEY=${NEXROLL_API_KEY}
+      # The path NeXroll sees for your output folder.
+      # Must match what NeXroll can access on its filesystem.
+      # Example: if your output volume is /mnt/media/prerolls/output
+      #          and NeXroll runs on the same host, set this to that path.
+      - NEXROLL_OUTPUT_PATH=/mnt/media/prerolls/output
 
       # ── CPU & quality ──────────────────────────────────────────
       - CPU_THREADS=2

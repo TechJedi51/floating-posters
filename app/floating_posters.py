@@ -37,7 +37,7 @@ except ImportError:
     sys.exit(1)
 
 
-VERSION = "1.7.0"
+VERSION = "1.8.0"
 
 # ══════════════════════════════════════════════════════════════
 #  GLOBAL ENV — connection / quality settings, never from yaml
@@ -50,8 +50,11 @@ SONARR_API_KEY = os.getenv("SONARR_API_KEY", "")
 CPU_THREADS    = int(os.getenv("CPU_THREADS", "2"))
 VIDEO_CRF      = os.getenv("VIDEO_CRF",      "18")
 VIDEO_PRESET   = os.getenv("VIDEO_PRESET",   "fast")
-INPUT_DIR      = os.getenv("INPUT_DIR",      "/input")
-OUTPUT_DIR     = os.getenv("OUTPUT_DIR",     "/output")
+INPUT_DIR           = os.getenv("INPUT_DIR",           "/input")
+OUTPUT_DIR          = os.getenv("OUTPUT_DIR",          "/output")
+NEXROLL_URL         = os.getenv("NEXROLL_URL",         "")
+NEXROLL_API_KEY     = os.getenv("NEXROLL_API_KEY",     "")
+NEXROLL_OUTPUT_PATH = os.getenv("NEXROLL_OUTPUT_PATH", "")
 
 VIDEO_EXTENSIONS = {".mov", ".mp4", ".m4v", ".mpg", ".mpeg", ".mkv", ".m4a"}
 
@@ -109,6 +112,12 @@ DEFAULT_CONFIG = {
     "BOTTOM_MESSAGE_SHADOW":   False,
     "BOTTOM_MESSAGE_BG_COLOR": "#000000",
     "BOTTOM_MESSAGE_BG_OPACITY": 170,
+    # NeXroll registration
+    "NEXROLL_REGISTER":         False,
+    "NEXROLL_CATEGORY":         "",
+    "NEXROLL_DISPLAY_NAME":     "",
+    "NEXROLL_CREATE_CATEGORY":  True,
+    "NEXROLL_APPLY_TO_PLEX":    False,
 }
 
 # Module-level dict populated at the start of each job
@@ -729,6 +738,133 @@ def composite_video(poster_data: list, bg_path: str, out_path: str):
     final.close()
 
 
+
+# ══════════════════════════════════════════════════════════════
+#  NEXROLL INTEGRATION
+# ══════════════════════════════════════════════════════════════
+
+def _nexroll_headers() -> dict:
+    return {
+        "Authorization": f"Bearer {NEXROLL_API_KEY}",
+        "Content-Type":  "application/json",
+    }
+
+
+def nexroll_get_or_create_category(category_name: str) -> int | None:
+    """
+    Look up a NeXroll category by name.
+    If not found and NEXROLL_CREATE_CATEGORY=True, create it.
+    Returns the category_id int, or None on failure.
+    """
+    base = NEXROLL_URL.rstrip("/")
+    hdrs = _nexroll_headers()
+
+    try:
+        r = requests.get(f"{base}/external/categories", headers=hdrs, timeout=10)
+        r.raise_for_status()
+    except requests.RequestException as e:
+        print(f"  [nexroll] ❌  Could not reach NeXroll at {NEXROLL_URL}: {e}")
+        return None
+
+    for cat in r.json():
+        if cat.get("name", "").lower() == category_name.lower():
+            print(f"  [nexroll] Found category '{category_name}'  id={cat['id']}")
+            return cat["id"]
+
+    if not CFG["NEXROLL_CREATE_CATEGORY"]:
+        print(f"  [nexroll] ❌  Category '{category_name}' not found and NEXROLL_CREATE_CATEGORY=false")
+        return None
+
+    # Create it
+    try:
+        r = requests.post(
+            f"{base}/external/categories",
+            headers=hdrs,
+            json={"name": category_name},
+            timeout=10,
+        )
+        r.raise_for_status()
+        cat_id = r.json().get("id")
+        print(f"  [nexroll] Created category '{category_name}'  id={cat_id}")
+        return cat_id
+    except requests.RequestException as e:
+        print(f"  [nexroll] ❌  Failed to create category '{category_name}': {e}")
+        return None
+
+
+def nexroll_register(output_name: str, out_path: Path):
+    """
+    Register the rendered video with NeXroll after a successful render.
+    Uses CFG for per-job settings. Skips silently if NEXROLL_REGISTER=False
+    or if NEXROLL_URL / NEXROLL_API_KEY are not configured.
+    """
+    if not CFG["NEXROLL_REGISTER"]:
+        return
+
+    if not NEXROLL_URL or not NEXROLL_API_KEY:
+        print("  [nexroll] ⚠  NEXROLL_URL or NEXROLL_API_KEY not set — skipping registration")
+        return
+
+    category_name = CFG["NEXROLL_CATEGORY"].strip()
+    if not category_name:
+        print("  [nexroll] ⚠  NEXROLL_CATEGORY not set — skipping registration")
+        return
+
+    # Translate container output path → NeXroll host path
+    if NEXROLL_OUTPUT_PATH:
+        host_path = str(NEXROLL_OUTPUT_PATH).rstrip("/") + "/" + out_path.name
+    else:
+        host_path = str(out_path)   # best-effort if no mapping given
+
+    display_name = CFG["NEXROLL_DISPLAY_NAME"].strip() or output_name
+    base         = NEXROLL_URL.rstrip("/")
+    hdrs         = _nexroll_headers()
+
+    print(f"  [nexroll] Registering '{display_name}'")
+    print(f"            file_path: {host_path}")
+
+    # 1 — Look up / create category
+    cat_id = nexroll_get_or_create_category(category_name)
+    if cat_id is None:
+        return
+
+    # 2 — Register the preroll
+    payload = {
+        "file_path":    host_path,
+        "display_name": display_name,
+        "category_id":  cat_id,
+    }
+    try:
+        r = requests.post(
+            f"{base}/external/prerolls/register",
+            headers=hdrs,
+            json=payload,
+            timeout=15,
+        )
+        r.raise_for_status()
+        preroll = r.json()
+        print(f"  [nexroll] ✅  Registered  id={preroll.get('id')}  category='{category_name}'")
+    except requests.RequestException as e:
+        body = ""
+        try:    body = e.response.text[:200]
+        except: pass
+        print(f"  [nexroll] ❌  Registration failed: {e}  {body}")
+        return
+
+    # 3 — Optionally apply category to Plex immediately
+    if CFG["NEXROLL_APPLY_TO_PLEX"]:
+        try:
+            r = requests.post(
+                f"{base}/external/apply-category/{cat_id}",
+                headers=hdrs,
+                timeout=10,
+            )
+            r.raise_for_status()
+            print(f"  [nexroll] ✅  Category '{category_name}' applied to Plex")
+        except requests.RequestException as e:
+            print(f"  [nexroll] ⚠  Apply to Plex failed: {e}")
+
+
 # ══════════════════════════════════════════════════════════════
 #  JOB RUNNER
 # ══════════════════════════════════════════════════════════════
@@ -792,6 +928,7 @@ def run_job(video_path: Path, yaml_path: Path):
         composite_video(poster_data, video_path, out_path)
 
     print(f"\n  ✅  {output_name}.mp4  saved to {OUTPUT_DIR}")
+    nexroll_register(output_name, out_path)
 
 
 # ══════════════════════════════════════════════════════════════
@@ -806,6 +943,8 @@ def main():
     print(f"  Radarr:      {RADARR_URL}")
     print(f"  Sonarr:      {SONARR_URL}")
     print(f"  Threads:     {CPU_THREADS}   CRF: {VIDEO_CRF}   Preset: {VIDEO_PRESET}")
+    if NEXROLL_URL:
+        print(f"  NeXroll:     {NEXROLL_URL}")
     print("═" * 54)
 
     # Ensure output dir exists
