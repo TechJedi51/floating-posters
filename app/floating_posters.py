@@ -23,7 +23,7 @@ from datetime import datetime, timezone
 from PIL import Image, ImageDraw, ImageFilter
 
 try:
-    from moviepy.editor import VideoFileClip, ImageClip, CompositeVideoClip
+    from moviepy.editor import VideoFileClip, ImageClip, VideoClip, CompositeVideoClip
 except ImportError:
     print("ERROR: moviepy not found.  Run:  pip install moviepy")
     sys.exit(1)
@@ -214,26 +214,35 @@ def prepare_poster(image_path: str, target_width: int) -> Image.Image:
 # ══════════════════════════════════════════════════════════════
 
 def make_poster_clip(pil_img, pos_x: int, base_y: int, float_phase: float):
-    arr  = np.array(pil_img)
-    clip = ImageClip(arr, ismask=False)
+    rgba  = np.array(pil_img)             # H x W x 4  (RGBA)
+    rgb   = rgba[:, :, :3]               # RGB for the visible clip
+    alpha = rgba[:, :, 3] / 255.0        # normalised alpha mask (rounded corners + shadow)
+
+    h, w  = rgb.shape[:2]
+    clip  = ImageClip(rgb, ismask=False)
 
     def position(t):
         dy = FLOAT_AMPLITUDE * math.sin(2 * math.pi * FLOAT_SPEED * t + float_phase)
         return (pos_x, int(base_y + dy))
 
-    def opacity(t) -> float:
+    def make_mask_frame(t):
+        """Combine the poster alpha with a time-based fade."""
         if t < FADE_DURATION:
-            return t / FADE_DURATION
-        if t > POSTER_DURATION - FADE_DURATION:
-            return max(0.0, (POSTER_DURATION - t) / FADE_DURATION)
-        return 1.0
+            fade = t / FADE_DURATION
+        elif t > POSTER_DURATION - FADE_DURATION:
+            fade = max(0.0, (POSTER_DURATION - t) / FADE_DURATION)
+        else:
+            fade = 1.0
+        return alpha * fade   # preserves rounded corners + shadow transparency
+
+    mask = VideoClip(make_mask_frame, ismask=True, duration=POSTER_DURATION)
 
     return (
         clip
+        .set_mask(mask)
         .set_start(START_TIME)
         .set_duration(POSTER_DURATION)
         .set_position(position)
-        .set_opacity(opacity)
     )
 
 
