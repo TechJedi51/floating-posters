@@ -1,43 +1,67 @@
 services:
   floating-posters:
-    image: ghcr.io/YOUR_GITHUB_USERNAME/floating-posters:latest
-    # To build locally instead of pulling:
-    # build: .
+    image: ghcr.io/TechJedi51/floating-posters:latest
     volumes:
-      - /path/to/your/background.mp4:/input/background.mp4:ro
-      - /path/to/your/output:/output
+      - ${ROOT}/Docker/floating-posters/background.mov:/input/background.mp4:ro
+      - ${ROOT}/Docker/floating-posters/output:/output
     environment:
-      # ── Required ─────────────────────────────────────────────
+      # ── Required ───────────────────────────────────────────────
       - RADARR_URL=http://your-radarr-host:7878
-      - RADARR_API_KEY=your_api_key_here
+      - RADARR_API_KEY=${RADARR_API_KEY}
 
-      # ── Timing ───────────────────────────────────────────────
-      - START_TIME=2.0          # Seconds into video where posters appear
-      - POSTER_DURATION=8.0     # How long posters are visible (max 10)
-      - FADE_DURATION=0.75      # Fade in/out duration in seconds
+      # ── Font ──────────────────────────────────────────────────
+      # Poppins-Bold, Poppins-Medium, Poppins-Regular,
+      # DejaVuSans-Bold, DejaVuSans, DejaVuSerif-Bold, DejaVuSerif,
+      # DejaVuSansMono-Bold, DejaVuSansCondensed-Bold,
+      # LiberationSans-Bold, LiberationSans, LiberationSerif-Bold, LiberationMono-Bold,
+      # FreeSansBold, FreeSerifBold, Carlito-Bold, Caladea-Bold
+      - FONT=Poppins-Bold
 
-      # ── Poster selection ─────────────────────────────────────
-      - NUM_POSTERS=4           # How many posters (1–6)
-      - UPCOMING_DAYS=180       # Days ahead to look for releases
+      # ── Timing ────────────────────────────────────────────────
+      - START_TIME=3.0
+      - POSTER_DURATION=9.0
+      - FADE_DURATION=0.75
 
-      # ── Poster appearance ────────────────────────────────────
-      - POSTER_WIDTH=185        # Width in pixels (height auto-scales)
-      - PADDING=28              # Pixels between posters
-      - VERTICAL_POS=0.52       # 0.0=top  0.5=center  1.0=bottom
-      - CORNER_RADIUS=10        # Rounded corner radius
+      # ── Poster selection ───────────────────────────────────────
+      - NUM_POSTERS=5
+      - UPCOMING_DAYS=180
 
-      # ── Drop shadow ──────────────────────────────────────────
-      - ADD_SHADOW=true
-      - SHADOW_OFFSET_X=7
-      - SHADOW_OFFSET_Y=9
-      - SHADOW_BLUR=9
-      - SHADOW_OPACITY=175      # 0–255
+      # ── Poster appearance ─────────────────────────────────────
+      - POSTER_WIDTH=250
+      - PADDING=28
+      - VERTICAL_POS=0.52
 
-      # ── Float animation ──────────────────────────────────────
-      - FLOAT_AMPLITUDE=14.0    # Max pixels of vertical drift
-      - FLOAT_SPEED=0.55        # Oscillations per second
+      # ── Release date label ────────────────────────────────────
+      - SHOW_RELEASE_DATE=true
+      - RELEASE_DATE_COLOR=#FFFFFF
+      - RELEASE_DATE_SIZE=15
+      - RELEASE_DATE_SHADOW=true
 
-      # ── Output quality ───────────────────────────────────────
-      - VIDEO_CRF=18            # 18=near-lossless  23=default  28=smaller
-      - VIDEO_PRESET=fast       # ultrafast/fast/medium/slow
-    restart: "no"               # Run once and exit
+      # ── Top message ───────────────────────────────────────────
+      - TOP_MESSAGE_SHOW=false
+      - TOP_MESSAGE=Coming Soon
+      - TOP_MESSAGE_ADD_DATE=false
+      - TOP_MESSAGE_COLOR=white
+      - TOP_MESSAGE_SIZE=15
+      - TOP_MESSAGE_SHADOW=false
+
+      # ── Bottom message ────────────────────────────────────────
+      - BOTTOM_MESSAGE_SHOW=true
+      - BOTTOM_MESSAGE=Updated
+      - BOTTOM_MESSAGE_ADD_DATE=true
+      - BOTTOM_MESSAGE_COLOR=white
+      - BOTTOM_MESSAGE_SIZE=15
+      - BOTTOM_MESSAGE_SHADOW=false
+
+      # ── CPU throttle ──────────────────────────────────────────
+      - CPU_THREADS=2
+
+      # ── Output quality ────────────────────────────────────────
+      - VIDEO_CRF=18
+      - VIDEO_PRESET=fast
+
+    restart: "no"
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"

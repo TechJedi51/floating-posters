@@ -1,4 +1,4 @@
-# 🎬 floating-posters  `v1.3.0`
+# 🎬 floating-posters  `v1.4.0`
 
 A Docker container that fetches upcoming movie posters from **Radarr** and composites them as **floating, animated overlays** onto a background video — ready to drop into [NeXroll](https://github.com/JFLXCLOUD/NeXroll) as a Plex preroll.
 
@@ -74,6 +74,15 @@ docker compose run --rm floating-posters
 
 All settings are environment variables. See [`.env.example`](.env.example) for the full list with descriptions.
 
+### Font *(new in v1.4.0)*
+
+| Variable | Default | Description |
+|---|---|---|
+| `FONT` | `Poppins-Bold` | Font name for all text overlays. See full list below. |
+
+**Available fonts** (all included in the image):
+`Poppins-Bold` · `Poppins-Medium` · `Poppins-Regular` · `DejaVuSans-Bold` · `DejaVuSans` · `DejaVuSerif-Bold` · `DejaVuSerif` · `DejaVuSansMono-Bold` · `DejaVuSansCondensed-Bold` · `LiberationSans-Bold` · `LiberationSans` · `LiberationSerif-Bold` · `LiberationMono-Bold` · `FreeSansBold` · `FreeSerifBold` · `Carlito-Bold` · `Caladea-Bold`
+
 ### Radarr connection
 
 | Variable | Default | Description |
@@ -122,6 +131,17 @@ All settings are environment variables. See [`.env.example`](.env.example) for t
 | `SHADOW_BLUR` | `9` | Shadow softness (Gaussian blur radius) |
 | `SHADOW_OPACITY` | `175` | Shadow darkness: `0`=invisible · `255`=solid black |
 
+### Top message *(new in v1.4.0)*
+
+| Variable | Default | Description |
+|---|---|---|
+| `TOP_MESSAGE_SHOW` | `false` | Enable the top message overlay |
+| `TOP_MESSAGE` | *(empty)* | Text to display at the top of the screen |
+| `TOP_MESSAGE_ADD_DATE` | `false` | Append today's date |
+| `TOP_MESSAGE_COLOR` | `white` | Hex (`#RRGGBB`) or CSS color name |
+| `TOP_MESSAGE_SIZE` | `15` | Font size in pixels |
+| `TOP_MESSAGE_SHADOW` | `false` | Drop shadow behind text |
+
 ### Release date label *(new in v1.1.0)*
 
 | Variable | Default | Description |
@@ -148,6 +168,7 @@ All settings are environment variables. See [`.env.example`](.env.example) for t
 | `BOTTOM_MESSAGE_ADD_DATE` | `true` | Append today's date — e.g. `Updated  April 20, 2026` |
 | `BOTTOM_MESSAGE_COLOR` | `white` | Hex (`#RRGGBB`) or CSS color name |
 | `BOTTOM_MESSAGE_SIZE` | `15` | Font size in pixels |
+| `BOTTOM_MESSAGE_SHADOW` | `false` | Drop shadow behind text |
 
 ### Float animation
 
@@ -199,7 +220,7 @@ docker run --rm \
 On every push to `main`, GitHub Actions automatically:
 - Builds for `linux/amd64` and `linux/arm64` (Apple Silicon / Unraid)
 - Pushes `ghcr.io/TechJedi51/floating-posters:latest`
-- Tags version releases (`v1.3.0`) as `:1.3.0` and `:1.3`
+- Tags version releases (`v1.4.0`) as `:1.4.0` and `:1.4`
 
 The `GITHUB_TOKEN` is used automatically — no secrets to configure.
 
@@ -215,6 +236,12 @@ brew install ffmpeg   # macOS
 ---
 
 ## Changelog
+
+### v1.4.0
+- Added `FONT` config — choose from 17 bundled fonts; Poppins-Bold is the new default (downloaded from Google Fonts during Docker build)
+- Added font packages to Dockerfile: `fonts-liberation`, `fonts-freefont-ttf`, `fonts-crosextra-carlito`, `fonts-crosextra-caladea`
+- Added `TOP_MESSAGE` overlay with full parity to `BOTTOM_MESSAGE` (`SHOW`, `ADD_DATE`, `COLOR`, `SIZE`, `SHADOW`)
+- Added `BOTTOM_MESSAGE_SHADOW` option (previously hardcoded `true`)
 
 ### v1.3.0
 - **Fixed release date not showing** — root cause was a broken indentation in the previous string replacement that put `poster_images.append()` inside the wrong branch; text rendering architecture completely reworked
