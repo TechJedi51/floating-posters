@@ -1,0 +1,24 @@
+# Environment / secrets
+.env
+*.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+*.egg-info/
+
+# macOS
+.DS_Store
+
+# Output videos (don't commit renders)
+/output/
+*.mp4
+*.mov
+*.mkv
+
+# Temp files
+*.tmp
+*.log
