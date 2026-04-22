@@ -904,12 +904,13 @@ def nexroll_register(output_name: str, out_path: Path):
 
     print(f"  [nexroll] Registering '{display_name}'")
     print(f"            file_path:    {host_path}")
-    print(f"            category_id:  {cat_id}")
 
     # 1 — Look up / create category
     cat_id = nexroll_get_or_create_category(category_name)
     if cat_id is None:
         return
+
+    print(f"            category_id:  {cat_id}")
 
     # 2 — Register the preroll
     payload = {
