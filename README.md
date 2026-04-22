@@ -2,7 +2,7 @@
 
 A Docker container that fetches upcoming movie posters from **Radarr** and composites them as **floating, animated overlays** onto a background video — ready to drop into [NeXroll](https://github.com/JFLXCLOUD/NeXroll) as a Plex preroll.
 
-![GitHub Actions](https://github.com/YOUR_GITHUB_USERNAME/floating-posters/actions/workflows/docker-build.yml/badge.svg)
+![GitHub Actions](https://github.com/techjedi51/floating-posters/actions/workflows/docker-build.yml/badge.svg)
 
 ---
 
@@ -21,7 +21,7 @@ A Docker container that fetches upcoming movie posters from **Radarr** and compo
 ### 1. Pull the image
 
 ```bash
-docker pull ghcr.io/YOUR_GITHUB_USERNAME/floating-posters:latest
+docker pull ghcr.io/techjedi51/floating-posters:latest
 ```
 
 ### 2. Run it
@@ -32,7 +32,7 @@ docker run --rm \
   -v /path/to/output:/output \
   -e RADARR_URL=http://your-radarr:7878 \
   -e RADARR_API_KEY=your_api_key \
-  ghcr.io/YOUR_GITHUB_USERNAME/floating-posters:latest
+  ghcr.io/techjedi51/floating-posters:latest
 ```
 
 The finished video will be at `/path/to/output/output.mp4`.
@@ -46,7 +46,7 @@ Copy `docker-compose.yml` and edit the `volumes` and `environment` sections:
 ```yaml
 services:
   floating-posters:
-    image: ghcr.io/YOUR_GITHUB_USERNAME/floating-posters:latest
+    image: ghcr.io/techjedi51/floating-posters:latest
     volumes:
       - /mnt/media/prerolls/background.mp4:/input/background.mp4:ro
       - /mnt/media/prerolls/output:/output
@@ -109,7 +109,7 @@ Then point NeXroll at the output file as a scheduled preroll.
 ## Building locally
 
 ```bash
-git clone https://github.com/YOUR_GITHUB_USERNAME/floating-posters
+git clone https://github.com/techjedi51/floating-posters
 cd floating-posters
 docker build -t floating-posters .
 docker run --rm \
@@ -126,7 +126,7 @@ docker run --rm \
 
 On every push to `main`, GitHub Actions automatically:
 - Builds for `linux/amd64` and `linux/arm64` (Apple Silicon / Unraid)
-- Pushes `ghcr.io/YOUR_GITHUB_USERNAME/floating-posters:latest`
+- Pushes `ghcr.io/techjedi51/floating-posters:latest`
 - Tags version releases (`v1.0.0`) as `:1.0.0` and `:1.0`
 
 The `GITHUB_TOKEN` is used automatically — no secrets to configure.
