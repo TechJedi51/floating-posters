@@ -1,4 +1,4 @@
-# 🎬 floating-posters  `v1.8.0`
+# 🎬 floating-posters  `v1.9.0`
 
 A Docker container that fetches upcoming movie and TV posters from **Radarr** and **Sonarr**, and composites them as **floating, animated overlays** onto background videos — ready to drop into [NeXroll](https://github.com/JFLXCLOUD/NeXroll) as Plex prerolls.
 
@@ -227,7 +227,46 @@ Requires `NEXROLL_URL`, `NEXROLL_API_KEY`, and `NEXROLL_OUTPUT_PATH` in docker-c
 
 ---
 
+## Scheduling
+
+Set `RERUN_INTERVAL` in docker-compose and change `restart: unless-stopped` — the container runs immediately on start, then sleeps and repeats automatically. No cron, no external scheduler needed.
+
+```yaml
+environment:
+  - RERUN_INTERVAL=24h    # run every 24 hours
+restart: unless-stopped   # keep container alive between runs
+```
+
+**Supported interval formats:**
+
+| Value | Meaning |
+|---|---|
+| `30m` | Every 30 minutes |
+| `6h` | Every 6 hours |
+| `12h` | Every 12 hours |
+| `24h` | Every 24 hours |
+| `1d` | Every day (same as 24h) |
+| *(unset)* | Run once and exit |
+
+Logs show each run number, timestamp, and next scheduled run time:
+
+```
+══════════════════════════════════════════════════════
+  Run #1  —  2026-04-21 02:00:00
+══════════════════════════════════════════════════════
+  floating-posters  v1.9.0
+  ...
+  ✅  RedCurtains.mp4  saved to /output
+
+  Next run: 2026-04-22 02:00:00
+  Sleeping 24h...
+```
+
+If a run fails (non-zero exit), the container logs a warning and continues to the next scheduled run rather than crashing.
+
 ## Scheduling with cron
+
+If you prefer host-level cron over the built-in scheduler, leave `RERUN_INTERVAL` unset (`restart: "no"`) and use a crontab entry instead:
 
 ```cron
 # Regenerate prerolls every night at 2 AM
@@ -257,11 +296,18 @@ docker run --rm \
 On every push to `main`, GitHub Actions automatically:
 - Builds for `linux/amd64` and `linux/arm64` (Apple Silicon / Unraid)
 - Pushes `ghcr.io/TechJedi51/floating-posters:latest`
-- Tags version releases (`v1.8.0`) as `:1.8.0` and `:1.8`
+- Tags version releases (`v1.9.0`) as `:1.9.0` and `:1.9`
 
 ---
 
 ## Changelog
+
+### v1.9.0
+- **Built-in scheduler**: `RERUN_INTERVAL` env var (e.g. `24h`, `12h`, `6h`, `1d`, `30m`) keeps the container running and re-executes on a repeating schedule
+- Supports `m` (minutes), `h` (hours), `d` (days) suffixes
+- Each run is numbered and timestamped in the log; next run time is shown after each completion
+- Failed runs log a warning and continue rather than crashing the container
+- `restart: unless-stopped` in docker-compose replaces `restart: "no"` when using the scheduler
 
 ### v1.8.0
 - **NeXroll integration**: after each render, optionally register the output as a preroll in NeXroll via `POST /external/prerolls/register`

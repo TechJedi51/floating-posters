@@ -25,7 +25,13 @@ services:
       - VIDEO_CRF=18
       - VIDEO_PRESET=fast
 
-    restart: "no"
+      # ── Scheduler ─────────────────────────────────────────────
+      # Leave unset (or remove) to run once and exit.
+      # Set to run on a repeating schedule — container stays running.
+      # Examples: 6h  12h  24h  1d  30m
+      - RERUN_INTERVAL=24h
+
+    restart: unless-stopped    # keep container alive between runs
     deploy:
       resources:
         limits:
