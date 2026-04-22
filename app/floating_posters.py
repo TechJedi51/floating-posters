@@ -38,7 +38,7 @@ except ImportError:
     sys.exit(1)
 
 
-VERSION = "1.9.2"
+VERSION = "1.9.3"
 
 # ══════════════════════════════════════════════════════════════
 #  GLOBAL ENV — connection / quality settings, never from yaml
@@ -773,6 +773,36 @@ def _nexroll_headers() -> dict:
     }
 
 
+def _nexroll_request(method: str, url: str, **kwargs) -> "requests.Response | None":
+    """
+    Wrapper for NeXroll HTTP calls with clear, specific error messages.
+    Returns the Response on success, None on any failure.
+    """
+    try:
+        r = requests.request(method, url, **kwargs)
+        if r.status_code == 401:
+            print(f"  [nexroll] ❌  Authentication failed (401 Unauthorized)")
+            print(f"             Check NEXROLL_API_KEY is correct and has Full Access scope")
+            print(f"             NeXroll: Settings → API Keys")
+            return None
+        if r.status_code == 403:
+            print(f"  [nexroll] ❌  Permission denied (403 Forbidden)")
+            print(f"             Your API key may be Read-Only — it must be Full Access")
+            return None
+        r.raise_for_status()
+        return r
+    except requests.exceptions.ConnectionError:
+        print(f"  [nexroll] ❌  Could not connect to NeXroll at {NEXROLL_URL}")
+        print(f"             Is NeXroll running and reachable on the stackarr network?")
+        return None
+    except requests.exceptions.Timeout:
+        print(f"  [nexroll] ❌  NeXroll request timed out ({url})")
+        return None
+    except requests.RequestException as e:
+        print(f"  [nexroll] ❌  Request failed: {e}")
+        return None
+
+
 def nexroll_get_or_create_category(category_name: str) -> int | None:
     """
     Look up a NeXroll category by name.
@@ -782,11 +812,8 @@ def nexroll_get_or_create_category(category_name: str) -> int | None:
     base = NEXROLL_URL.rstrip("/")
     hdrs = _nexroll_headers()
 
-    try:
-        r = requests.get(f"{base}/external/categories", headers=hdrs, timeout=10)
-        r.raise_for_status()
-    except requests.RequestException as e:
-        print(f"  [nexroll] ❌  Could not reach NeXroll at {NEXROLL_URL}: {e}")
+    r = _nexroll_request("GET", f"{base}/external/categories", headers=hdrs, timeout=10)
+    if r is None:
         return None
 
     for cat in r.json():
@@ -799,20 +826,18 @@ def nexroll_get_or_create_category(category_name: str) -> int | None:
         return None
 
     # Create it
-    try:
-        r = requests.post(
-            f"{base}/external/categories",
-            headers=hdrs,
-            json={"name": category_name},
-            timeout=10,
-        )
-        r.raise_for_status()
-        cat_id = r.json().get("id")
-        print(f"  [nexroll] Created category '{category_name}'  id={cat_id}")
-        return cat_id
-    except requests.RequestException as e:
-        print(f"  [nexroll] ❌  Failed to create category '{category_name}': {e}")
+    r = _nexroll_request(
+        "POST", f"{base}/external/categories",
+        headers=hdrs,
+        json={"name": category_name},
+        timeout=10,
+    )
+    if r is None:
         return None
+
+    cat_id = r.json().get("id")
+    print(f"  [nexroll] Created category '{category_name}'  id={cat_id}")
+    return cat_id
 
 
 def nexroll_register(output_name: str, out_path: Path):
@@ -857,35 +882,27 @@ def nexroll_register(output_name: str, out_path: Path):
         "display_name": display_name,
         "category_id":  cat_id,
     }
-    try:
-        r = requests.post(
-            f"{base}/external/prerolls/register",
-            headers=hdrs,
-            json=payload,
-            timeout=15,
-        )
-        r.raise_for_status()
-        preroll = r.json()
-        print(f"  [nexroll] ✅  Registered  id={preroll.get('id')}  category='{category_name}'")
-    except requests.RequestException as e:
-        body = ""
-        try:    body = e.response.text[:200]
-        except: pass
-        print(f"  [nexroll] ❌  Registration failed: {e}  {body}")
+    r = _nexroll_request(
+        "POST", f"{base}/external/prerolls/register",
+        headers=hdrs,
+        json=payload,
+        timeout=15,
+    )
+    if r is None:
         return
+
+    preroll = r.json()
+    print(f"  [nexroll] ✅  Registered  id={preroll.get('id')}  category='{category_name}'")
 
     # 3 — Optionally apply category to Plex immediately
     if CFG["NEXROLL_APPLY_TO_PLEX"]:
-        try:
-            r = requests.post(
-                f"{base}/external/apply-category/{cat_id}",
-                headers=hdrs,
-                timeout=10,
-            )
-            r.raise_for_status()
+        r = _nexroll_request(
+            "POST", f"{base}/external/apply-category/{cat_id}",
+            headers=hdrs,
+            timeout=10,
+        )
+        if r is not None:
             print(f"  [nexroll] ✅  Category '{category_name}' applied to Plex")
-        except requests.RequestException as e:
-            print(f"  [nexroll] ⚠  Apply to Plex failed: {e}")
 
 
 # ══════════════════════════════════════════════════════════════
