@@ -1,8 +1,8 @@
-# 🎬 floating-posters  `v1.1.0`
+# 🎬 floating-posters  `v1.2.0`
 
 A Docker container that fetches upcoming movie posters from **Radarr** and composites them as **floating, animated overlays** onto a background video — ready to drop into [NeXroll](https://github.com/JFLXCLOUD/NeXroll) as a Plex preroll.
 
-![GitHub Actions](https://github.com/techjedi51/floating-posters/actions/workflows/docker-build.yml/badge.svg)
+![GitHub Actions](https://github.com/TechJedi51/floating-posters/actions/workflows/docker-build.yml/badge.svg)
 
 ---
 
@@ -22,7 +22,7 @@ A Docker container that fetches upcoming movie posters from **Radarr** and compo
 ### 1. Pull the image
 
 ```bash
-docker pull ghcr.io/techjedi51/floating-posters:latest
+docker pull ghcr.io/TechJedi51/floating-posters:latest
 ```
 
 ### 2. Run it
@@ -33,7 +33,7 @@ docker run --rm \
   -v /path/to/output:/output \
   -e RADARR_URL=http://your-radarr:7878 \
   -e RADARR_API_KEY=your_api_key \
-  ghcr.io/techjedi51/floating-posters:latest
+  ghcr.io/TechJedi51/floating-posters:latest
 ```
 
 The finished video will be at `/path/to/output/output.mp4`.
@@ -47,7 +47,7 @@ Copy `docker-compose.yml` and edit the `volumes` and `environment` sections:
 ```yaml
 services:
   floating-posters:
-    image: ghcr.io/techjedi51/floating-posters:latest
+    image: ghcr.io/TechJedi51/floating-posters:latest
     volumes:
       - /mnt/media/prerolls/background.mp4:/input/background.mp4:ro
       - /mnt/media/prerolls/output:/output
@@ -131,6 +131,14 @@ All settings are environment variables. See [`.env.example`](.env.example) for t
 | `RELEASE_DATE_SIZE` | `15` | Font size in pixels |
 | `RELEASE_DATE_SHADOW` | `true` | Drop shadow behind the date text |
 
+### CPU throttle *(new in v1.2.0)*
+
+| Variable | Default | Description |
+|---|---|---|
+| `CPU_THREADS` | `2` | FFmpeg thread limit. `0` = unlimited (uses all cores) |
+
+> Also set `deploy.resources.limits.cpus` in `docker-compose.yml` to cap the container itself.
+
 ### Float animation
 
 | Variable | Default | Description |
@@ -163,7 +171,7 @@ Then point NeXroll at the output file as a scheduled preroll.
 ## Building locally
 
 ```bash
-git clone https://github.com/techjedi51/floating-posters
+git clone https://github.com/TechJedi51/floating-posters
 cd floating-posters
 docker build -t floating-posters .
 docker run --rm \
@@ -180,8 +188,8 @@ docker run --rm \
 
 On every push to `main`, GitHub Actions automatically:
 - Builds for `linux/amd64` and `linux/arm64` (Apple Silicon / Unraid)
-- Pushes `ghcr.io/techjedi51/floating-posters:latest`
-- Tags version releases (`v1.1.0`) as `:1.1.0` and `:1.1`
+- Pushes `ghcr.io/TechJedi51/floating-posters:latest`
+- Tags version releases (`v1.2.0`) as `:1.2.0` and `:1.2`
 
 The `GITHUB_TOKEN` is used automatically — no secrets to configure.
 
@@ -197,6 +205,11 @@ brew install ffmpeg   # macOS
 ---
 
 ## Changelog
+
+### v1.2.0
+- **Security**: upgraded to Python 3.13, added `apt-get upgrade` for patched openssl/libssl
+- **CPU limiting**: added `CPU_THREADS` env var (`-threads N` passed to FFmpeg); pair with `deploy.resources.limits.cpus` in docker-compose for a full container cap
+- **Release date fix**: replaced Linux-only `%-m/%-d` strftime modifiers with explicit date formatting; added semi-transparent dark pill background behind label text so it's readable against any video background; improved font fallback for Pillow 10+
 
 ### v1.1.0
 - Added release date label below each poster (`SHOW_RELEASE_DATE`, `RELEASE_DATE_COLOR`, `RELEASE_DATE_SIZE`, `RELEASE_DATE_SHADOW`)
