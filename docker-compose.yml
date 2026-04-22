@@ -23,12 +23,13 @@ services:
       - FADE_DURATION=0.75
 
       # ── Poster selection ───────────────────────────────────────
-      - NUM_POSTERS=5
+      - NUM_POSTERS=5           # 1–10  (6+ triggers 2-row layout)
       - UPCOMING_DAYS=180
 
       # ── Poster appearance ─────────────────────────────────────
       - POSTER_WIDTH=250
       - PADDING=28
+      - ROW_GAP=24              # pixels between rows when 2-row layout is used
       - VERTICAL_POS=0.52
 
       # ── Release date label ────────────────────────────────────

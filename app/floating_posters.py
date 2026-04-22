@@ -29,7 +29,7 @@ except ImportError:
     sys.exit(1)
 
 
-VERSION = "1.5.0"
+VERSION = "1.6.0"
 
 # ══════════════════════════════════════════════════════════════
 #  CONFIG  —  all values read from environment variables
@@ -60,12 +60,13 @@ POSTER_DURATION = _float("POSTER_DURATION", 8.0)
 FADE_DURATION   = _float("FADE_DURATION",   0.75)
 
 # ── Poster selection ──────────────────────────────────────────
-NUM_POSTERS   = _int("NUM_POSTERS",    4)
+NUM_POSTERS   = _int("NUM_POSTERS",    4)   # 1–10
 UPCOMING_DAYS = _int("UPCOMING_DAYS", 180)
 
 # ── Poster appearance ─────────────────────────────────────────
 POSTER_WIDTH  = _int("POSTER_WIDTH",   185)
 PADDING       = _int("PADDING",         28)
+ROW_GAP       = _int("ROW_GAP",         24)   # pixels between rows (2-row layout)
 VERTICAL_POS  = _float("VERTICAL_POS",  0.52)
 CORNER_RADIUS = _int("CORNER_RADIUS",   10)
 
@@ -85,26 +86,16 @@ VIDEO_CRF    = os.getenv("VIDEO_CRF",    "18")
 VIDEO_PRESET = os.getenv("VIDEO_PRESET", "fast")
 CPU_THREADS  = _int("CPU_THREADS", 2)
 
-# ── Release date label ────────────────────────────────────────
-SHOW_RELEASE_DATE      = _bool("SHOW_RELEASE_DATE",  True)
-RELEASE_DATE_COLOR     = os.getenv("RELEASE_DATE_COLOR",     "#FFFFFF")
-RELEASE_DATE_SIZE      = _int("RELEASE_DATE_SIZE",   15)
-RELEASE_DATE_SHADOW    = _bool("RELEASE_DATE_SHADOW", True)
-RELEASE_DATE_BG_COLOR  = os.getenv("RELEASE_DATE_BG_COLOR",  "#000000")
-RELEASE_DATE_BG_OPACITY= _int("RELEASE_DATE_BG_OPACITY", 170)
-
 # ── Font ─────────────────────────────────────────────────────
 FONT = os.getenv("FONT", "Poppins-Bold")
 
-# ── Bottom message ────────────────────────────────────────────
-BOTTOM_MESSAGE_SHOW       = _bool("BOTTOM_MESSAGE_SHOW", False)
-BOTTOM_MESSAGE            = os.getenv("BOTTOM_MESSAGE", "")
-BOTTOM_MESSAGE_ADD_DATE   = _bool("BOTTOM_MESSAGE_ADD_DATE", True)
-BOTTOM_MESSAGE_COLOR      = os.getenv("BOTTOM_MESSAGE_COLOR",      "white")
-BOTTOM_MESSAGE_SIZE       = _int("BOTTOM_MESSAGE_SIZE", 15)
-BOTTOM_MESSAGE_SHADOW     = _bool("BOTTOM_MESSAGE_SHADOW", False)
-BOTTOM_MESSAGE_BG_COLOR   = os.getenv("BOTTOM_MESSAGE_BG_COLOR",   "#000000")
-BOTTOM_MESSAGE_BG_OPACITY = _int("BOTTOM_MESSAGE_BG_OPACITY", 170)
+# ── Release date label ────────────────────────────────────────
+SHOW_RELEASE_DATE      = _bool("SHOW_RELEASE_DATE",   True)
+RELEASE_DATE_COLOR     = os.getenv("RELEASE_DATE_COLOR",     "#FFFFFF")
+RELEASE_DATE_SIZE      = _int("RELEASE_DATE_SIZE",    15)
+RELEASE_DATE_SHADOW    = _bool("RELEASE_DATE_SHADOW",  True)
+RELEASE_DATE_BG_COLOR  = os.getenv("RELEASE_DATE_BG_COLOR",  "#000000")
+RELEASE_DATE_BG_OPACITY= _int("RELEASE_DATE_BG_OPACITY", 170)
 
 # ── Top message ───────────────────────────────────────────────
 TOP_MESSAGE_SHOW       = _bool("TOP_MESSAGE_SHOW", False)
@@ -115,6 +106,16 @@ TOP_MESSAGE_SIZE       = _int("TOP_MESSAGE_SIZE", 15)
 TOP_MESSAGE_SHADOW     = _bool("TOP_MESSAGE_SHADOW", False)
 TOP_MESSAGE_BG_COLOR   = os.getenv("TOP_MESSAGE_BG_COLOR",   "#000000")
 TOP_MESSAGE_BG_OPACITY = _int("TOP_MESSAGE_BG_OPACITY", 170)
+
+# ── Bottom message ────────────────────────────────────────────
+BOTTOM_MESSAGE_SHOW       = _bool("BOTTOM_MESSAGE_SHOW", False)
+BOTTOM_MESSAGE            = os.getenv("BOTTOM_MESSAGE", "")
+BOTTOM_MESSAGE_ADD_DATE   = _bool("BOTTOM_MESSAGE_ADD_DATE", True)
+BOTTOM_MESSAGE_COLOR      = os.getenv("BOTTOM_MESSAGE_COLOR",      "white")
+BOTTOM_MESSAGE_SIZE       = _int("BOTTOM_MESSAGE_SIZE", 15)
+BOTTOM_MESSAGE_SHADOW     = _bool("BOTTOM_MESSAGE_SHADOW", False)
+BOTTOM_MESSAGE_BG_COLOR   = os.getenv("BOTTOM_MESSAGE_BG_COLOR",   "#000000")
+BOTTOM_MESSAGE_BG_OPACITY = _int("BOTTOM_MESSAGE_BG_OPACITY", 170)
 
 
 # ══════════════════════════════════════════════════════════════
@@ -155,7 +156,7 @@ def get_upcoming_movie_entries(n: int) -> list:
     ]
     with_poster.sort(key=lambda x: x["release"])
 
-    pool = with_poster[: max(n * 3, 15)]
+    pool = with_poster[: max(n * 3, 20)]
     random.shuffle(pool)
     return pool[:n]
 
@@ -189,8 +190,6 @@ def download_poster(movie: dict, dest_path: str) -> bool:
 #  FONTS & TEXT RENDERING
 # ══════════════════════════════════════════════════════════════
 
-# All fonts available in the container.
-# Set FONT=<name> in docker-compose to pick one.
 FONT_MAP = {
     # ── Poppins (Google Fonts — downloaded in Dockerfile) ─────
     "Poppins-Bold":             "/usr/share/fonts/truetype/google-fonts/Poppins-Bold.ttf",
@@ -214,33 +213,30 @@ FONT_MAP = {
     # ── Crosextra (fonts-crosextra-*) ─────────────────────────
     "Carlito-Bold":             "/usr/share/fonts/truetype/crosextra/Carlito-Bold.ttf",
     "Caladea-Bold":             "/usr/share/fonts/truetype/crosextra/Caladea-Bold.ttf",
-    # ── macOS fallbacks (running locally without Docker) ──────
+    # ── macOS fallbacks ───────────────────────────────────────
     "Helvetica":                "/System/Library/Fonts/Helvetica.ttc",
     "HelveticaNeue":            "/System/Library/Fonts/HelveticaNeue.ttc",
 }
 
 def load_font(size: int) -> ImageFont.ImageFont:
-    """Load the font named by FONT env var, falling back through available fonts."""
-    # Try the requested font first
     if FONT in FONT_MAP:
         path = FONT_MAP[FONT]
         if Path(path).exists():
             try:
-                font = ImageFont.truetype(path, size)
+                f = ImageFont.truetype(path, size)
                 print(f"  [font] {FONT}  size={size}")
-                return font
+                return f
             except Exception as e:
                 print(f"  [font] {FONT} failed ({e}), trying fallbacks...")
         else:
-            print(f"  [font] {FONT} not found at {path}, trying fallbacks...")
+            print(f"  [font] {FONT} not found, trying fallbacks...")
 
-    # Walk the full map in order until one loads
     for name, path in FONT_MAP.items():
         if Path(path).exists():
             try:
-                font = ImageFont.truetype(path, size)
+                f = ImageFont.truetype(path, size)
                 print(f"  [font] {name} (fallback)  size={size}")
-                return font
+                return f
             except Exception:
                 continue
 
@@ -258,46 +254,85 @@ def _parse_color(color_str: str) -> tuple:
         return (255, 255, 255)
 
 
-def make_text_image(text: str, font_size: int, color: str, shadow: bool,
-                    bg_color: str = "#000000", bg_opacity: int = 170) -> Image.Image:
+def wrap_text(text: str, font: ImageFont.ImageFont, max_px: int) -> list:
     """
-    Render text as a PIL RGBA image.
+    Word-wrap text so no line exceeds max_px pixels wide.
+    Returns a list of line strings.
+    """
+    words   = text.split()
+    lines   = []
+    current = ""
+    scratch = Image.new("RGBA", (1, 1))
+    draw    = ImageDraw.Draw(scratch)
+
+    for word in words:
+        candidate = f"{current} {word}".strip()
+        w = draw.textbbox((0, 0), candidate, font=font)[2]
+        if w <= max_px:
+            current = candidate
+        else:
+            if current:
+                lines.append(current)
+            current = word   # start new line; single long word always gets its own line
+    if current:
+        lines.append(current)
+
+    return lines or [text]
+
+
+def make_text_image(text: str, font_size: int, color: str, shadow: bool,
+                    bg_color: str = "#000000", bg_opacity: int = 170,
+                    max_width: int = None) -> Image.Image:
+    """
+    Render text as a PIL RGBA image with an optional rounded pill background.
+    If max_width (pixels) is given, long text is word-wrapped to fit.
     bg_opacity=0 disables the pill background entirely.
     """
     font       = load_font(font_size)
     text_color = _parse_color(color)
     bg_rgb     = _parse_color(bg_color)
 
-    # Measure on a generously-sized scratch canvas
-    scratch = Image.new("RGBA", (4000, font_size * 6), (0, 0, 0, 0))
+    h_pad    = 12
+    v_pad    = 6
+    line_gap = 4   # extra pixels between wrapped lines
+
+    # ── Wrap if needed ────────────────────────────────────────
+    if max_width and max_width > h_pad * 2:
+        lines = wrap_text(text, font, max_width - h_pad * 2)
+    else:
+        lines = [text]
+
+    # ── Measure every line ────────────────────────────────────
+    scratch = Image.new("RGBA", (8000, font_size * 6), (0, 0, 0, 0))
     d       = ImageDraw.Draw(scratch)
-    bbox    = d.textbbox((0, 0), text, font=font)
-    text_w  = bbox[2] - bbox[0]
-    text_h  = bbox[3] - bbox[1]
+    bboxes  = [d.textbbox((0, 0), line, font=font) for line in lines]
+    lwidths = [b[2] - b[0] for b in bboxes]
+    lheights= [b[3] - b[1] for b in bboxes]
 
-    h_pad = 12
-    v_pad = 6
-    img_w = text_w + h_pad * 2
-    img_h = text_h + v_pad * 2
+    img_w        = max(lwidths) + h_pad * 2
+    total_text_h = sum(lheights) + line_gap * (len(lines) - 1)
+    img_h        = total_text_h + v_pad * 2
 
+    # ── Draw ──────────────────────────────────────────────────
     img  = Image.new("RGBA", (img_w, img_h), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
 
-    # Pill background (skip if opacity is 0)
     if bg_opacity > 0:
         draw.rounded_rectangle([(0, 0), (img_w - 1, img_h - 1)],
                                 radius=6, fill=(*bg_rgb, bg_opacity))
 
-    # Compensate for font bearing offsets so text sits inside the pill
-    tx = h_pad - bbox[0]
-    ty = v_pad - bbox[1]
+    y_cursor = v_pad
+    for line, bbox, lw, lh in zip(lines, bboxes, lwidths, lheights):
+        # Centre each line horizontally within the pill
+        tx = (img_w - lw) // 2 - bbox[0]
+        ty = y_cursor - bbox[1]
+        if shadow:
+            draw.text((tx + 1, ty + 1), line, font=font, fill=(0, 0, 0, 220))
+        draw.text((tx, ty), line, font=font, fill=(*text_color, 255))
+        y_cursor += lh + line_gap
 
-    if shadow:
-        draw.text((tx + 1, ty + 1), text, font=font, fill=(0, 0, 0, 220))
-
-    draw.text((tx, ty), text, font=font, fill=(*text_color, 255))
-
-    print(f"  [text] '{text}'  {img_w}x{img_h}px")
+    n_lines = len(lines)
+    print(f"  [text] '{text}'  {n_lines} line(s)  {img_w}x{img_h}px")
     return img
 
 
@@ -323,11 +358,9 @@ def add_drop_shadow(img: Image.Image) -> Image.Image:
                        (0, 0, 0, 0))
     black = Image.new("RGBA", img.size, (0, 0, 0, SHADOW_OPACITY))
     black.putalpha(img.split()[3].point(lambda p: p * SHADOW_OPACITY // 255))
-
     sx, sy = extra // 2 + max(ox, 0), extra // 2 + max(oy, 0)
     canvas.paste(black, (sx, sy))
     canvas = canvas.filter(ImageFilter.GaussianBlur(radius=SHADOW_BLUR))
-
     px, py = extra // 2 + max(-ox, 0), extra // 2 + max(-oy, 0)
     canvas.paste(img, (px, py), img)
     return canvas
@@ -349,19 +382,14 @@ def prepare_poster(image_path: str, target_width: int) -> Image.Image:
 
 def _rgba_to_clip(pil_img: Image.Image,
                   pos_x: int,
-                  pos_y,          # int (static) or callable(t)->float
+                  pos_y,
                   start: float,
                   duration: float) -> ImageClip:
-    """
-    Core factory: wraps any RGBA PIL image as a moviepy clip.
-    Alpha channel drives the mask; fades in/out over FADE_DURATION.
-    pos_y may be a static int or a function of time for animation.
-    """
     arr   = np.array(pil_img.convert("RGBA"))
     rgb   = arr[:, :, :3]
     alpha = arr[:, :, 3] / 255.0
+    clip  = ImageClip(rgb, ismask=False)
 
-    clip     = ImageClip(rgb, ismask=False)
     is_static = isinstance(pos_y, (int, float))
 
     def position(t):
@@ -378,7 +406,6 @@ def _rgba_to_clip(pil_img: Image.Image,
         return alpha * fade
 
     mask = VideoClip(mask_frame, ismask=True, duration=duration)
-
     return (
         clip
         .set_mask(mask)
@@ -396,7 +423,6 @@ def make_poster_clip(pil_img, pos_x, base_y, float_phase):
 
 
 def make_date_clip(date_text, center_x, poster_bottom_y, float_phase):
-    """Date label that floats in sync with its poster, 6px below it."""
     img   = make_text_image(date_text, RELEASE_DATE_SIZE,
                             RELEASE_DATE_COLOR, RELEASE_DATE_SHADOW,
                             RELEASE_DATE_BG_COLOR, RELEASE_DATE_BG_OPACITY)
@@ -411,23 +437,47 @@ def make_date_clip(date_text, center_x, poster_bottom_y, float_phase):
 
 
 def make_bottom_message_clip(message, vid_w, vid_h):
-    """Centered, non-floating message 24px from the bottom edge."""
+    """Centered message 24px from the bottom; wraps if wider than 85% of video."""
     img   = make_text_image(message, BOTTOM_MESSAGE_SIZE,
                             BOTTOM_MESSAGE_COLOR, shadow=BOTTOM_MESSAGE_SHADOW,
-                            bg_color=BOTTOM_MESSAGE_BG_COLOR, bg_opacity=BOTTOM_MESSAGE_BG_OPACITY)
+                            bg_color=BOTTOM_MESSAGE_BG_COLOR, bg_opacity=BOTTOM_MESSAGE_BG_OPACITY,
+                            max_width=int(vid_w * 0.85))
     pos_x = (vid_w - img.width) // 2
     pos_y = vid_h - img.height - 24
     return _rgba_to_clip(img, pos_x, pos_y, START_TIME, POSTER_DURATION)
 
 
 def make_top_message_clip(message, vid_w, vid_h):
-    """Centered, non-floating message 24px from the top edge."""
+    """Centered message 24px from the top; wraps if wider than 85% of video."""
     img   = make_text_image(message, TOP_MESSAGE_SIZE,
                             TOP_MESSAGE_COLOR, shadow=TOP_MESSAGE_SHADOW,
-                            bg_color=TOP_MESSAGE_BG_COLOR, bg_opacity=TOP_MESSAGE_BG_OPACITY)
+                            bg_color=TOP_MESSAGE_BG_COLOR, bg_opacity=TOP_MESSAGE_BG_OPACITY,
+                            max_width=int(vid_w * 0.85))
     pos_x = (vid_w - img.width) // 2
     pos_y = 24
     return _rgba_to_clip(img, pos_x, pos_y, START_TIME, POSTER_DURATION)
+
+
+# ══════════════════════════════════════════════════════════════
+#  ROW LAYOUT HELPER
+# ══════════════════════════════════════════════════════════════
+
+def build_rows(poster_data: list) -> list:
+    """
+    Split posters into 1 or 2 rows:
+      1–5  → 1 row
+      6    → 2 rows of 3/3
+      7    → 2 rows of 4/3
+      8    → 2 rows of 4/4
+      9    → 2 rows of 5/4
+      10   → 2 rows of 5/5
+    Returns a list of lists (each sub-list is one row).
+    """
+    n = len(poster_data)
+    if n <= 5:
+        return [poster_data]
+    row1_count = math.ceil(n / 2)
+    return [poster_data[:row1_count], poster_data[row1_count:]]
 
 
 # ══════════════════════════════════════════════════════════════
@@ -440,31 +490,52 @@ def composite_video(poster_data: list, bg_path: str, out_path: str):
     bg           = VideoFileClip(bg_path)
     vid_w, vid_h = bg.size
     n            = len(poster_data)
-    total_width  = sum(d["img"].width for d in poster_data) + PADDING * (n - 1)
-    x_start      = (vid_w - total_width) // 2
 
-    all_clips = [bg]
-    x_cursor  = x_start
+    # ── Row layout ────────────────────────────────────────────
+    rows       = build_rows(poster_data)
+    n_rows     = len(rows)
+    row_max_h  = [max(d["img"].height for d in row) for row in rows]
+    total_h    = sum(row_max_h) + ROW_GAP * (n_rows - 1)
 
-    for i, d in enumerate(poster_data):
-        img   = d["img"]
-        phase = (2 * math.pi * i) / n
+    # Centre the whole block vertically
+    block_top  = int(vid_h * VERTICAL_POS - total_h / 2)
+    block_top  = max(10, min(block_top, vid_h - total_h - 10))
 
-        base_y = int(vid_h * VERTICAL_POS - img.height / 2)
-        base_y = max(10, min(base_y, vid_h - img.height - 10))
+    # Float phases spread evenly across ALL posters regardless of row
+    phases     = [(2 * math.pi * i) / n for i in range(n)]
 
-        all_clips.append(make_poster_clip(img, x_cursor, base_y, phase))
+    all_clips  = [bg]
+    y_cursor   = block_top
+    poster_idx = 0
 
-        if SHOW_RELEASE_DATE and d["date"]:
-            center_x      = x_cursor + img.width // 2
-            poster_bottom = base_y + img.height
-            all_clips.append(
-                make_date_clip(d["date"], center_x, poster_bottom, phase)
-            )
+    for row_num, row in enumerate(rows):
+        row_h   = row_max_h[row_num]
+        row_w   = sum(d["img"].width for d in row) + PADDING * (len(row) - 1)
+        x_start = (vid_w - row_w) // 2
+        x_cursor = x_start
 
-        x_cursor += img.width + PADDING
+        for d in row:
+            img   = d["img"]
+            phase = phases[poster_idx]
+            poster_idx += 1
 
-    # Bottom message
+            # Vertically centre each poster within its row's max height
+            base_y = y_cursor + (row_h - img.height) // 2
+
+            all_clips.append(make_poster_clip(img, x_cursor, base_y, phase))
+
+            if SHOW_RELEASE_DATE and d["date"]:
+                center_x      = x_cursor + img.width // 2
+                poster_bottom = base_y + img.height
+                all_clips.append(
+                    make_date_clip(d["date"], center_x, poster_bottom, phase)
+                )
+
+            x_cursor += img.width + PADDING
+
+        y_cursor += row_h + ROW_GAP
+
+    # ── Bottom message ────────────────────────────────────────
     if BOTTOM_MESSAGE_SHOW and (BOTTOM_MESSAGE or BOTTOM_MESSAGE_ADD_DATE):
         msg = BOTTOM_MESSAGE
         if BOTTOM_MESSAGE_ADD_DATE:
@@ -474,7 +545,7 @@ def composite_video(poster_data: list, bg_path: str, out_path: str):
         print(f"  [bottom msg] '{msg}'")
         all_clips.append(make_bottom_message_clip(msg, vid_w, vid_h))
 
-    # Top message
+    # ── Top message ───────────────────────────────────────────
     if TOP_MESSAGE_SHOW and (TOP_MESSAGE or TOP_MESSAGE_ADD_DATE):
         msg = TOP_MESSAGE
         if TOP_MESSAGE_ADD_DATE:
@@ -513,7 +584,7 @@ def parse_args():
     p.add_argument("--output",   help="Output video path")
     p.add_argument("--start",    type=float, help="Start time in seconds")
     p.add_argument("--duration", type=float, help="Poster visible duration (max 10)")
-    p.add_argument("--count",    type=int,   help="Number of posters (1–6)")
+    p.add_argument("--count",    type=int,   help="Number of posters (1–10)")
     p.add_argument("--width",    type=int,   help="Poster width in pixels")
     return p.parse_args()
 
@@ -530,7 +601,7 @@ def main():
     if args.output:               OUTPUT_VIDEO    = args.output
     if args.start    is not None: START_TIME      = args.start
     if args.duration is not None: POSTER_DURATION = min(args.duration, 10.0)
-    if args.count    is not None: NUM_POSTERS     = max(1, min(args.count, 6))
+    if args.count    is not None: NUM_POSTERS     = max(1, min(args.count, 10))
     if args.width    is not None: POSTER_WIDTH    = args.width
 
     if POSTER_DURATION > 10:
@@ -541,15 +612,20 @@ def main():
         print(f"ERROR: Input video not found: {INPUT_VIDEO}")
         sys.exit(1)
 
+    rows_preview = build_rows([None] * NUM_POSTERS)
+    layout_str   = " + ".join(str(len(r)) for r in rows_preview)
+
     print("─" * 54)
     print(f"  floating-posters  v{VERSION}")
     print(f"  Radarr:    {RADARR_URL}")
     print(f"  Input:     {INPUT_VIDEO}")
     print(f"  Output:    {OUTPUT_VIDEO}")
-    print(f"  Posters:   {NUM_POSTERS}  start={START_TIME}s  show={POSTER_DURATION}s")
-    print(f"  Date:      {'on' if SHOW_RELEASE_DATE else 'off'}"
-          f"    Msg: {'on' if BOTTOM_MESSAGE_SHOW else 'off'}"
-          f"    Threads: {CPU_THREADS}")
+    print(f"  Posters:   {NUM_POSTERS}  layout={layout_str}  start={START_TIME}s  show={POSTER_DURATION}s")
+    print(f"  Font:      {FONT}")
+    print(f"  Date: {'on' if SHOW_RELEASE_DATE else 'off'}"
+          f"   Bottom: {'on' if BOTTOM_MESSAGE_SHOW else 'off'}"
+          f"   Top: {'on' if TOP_MESSAGE_SHOW else 'off'}"
+          f"   Threads: {CPU_THREADS}")
     print("─" * 54)
 
     # 1 ── Fetch upcoming movies
