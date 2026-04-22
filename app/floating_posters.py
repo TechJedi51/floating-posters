@@ -38,7 +38,7 @@ except ImportError:
     sys.exit(1)
 
 
-VERSION = "1.9.5"
+VERSION = "1.9.6"
 
 # ══════════════════════════════════════════════════════════════
 #  GLOBAL ENV — connection / quality settings, never from yaml
@@ -800,7 +800,14 @@ def _nexroll_request(method: str, url: str, **kwargs) -> "requests.Response | No
                 print(f"             Your API key may be Read-Only — it must be Full Access")
                 return None
 
-            r.raise_for_status()
+            if not r.ok:
+                body = ""
+                try: body = r.text[:300]
+                except: pass
+                print(f"  [nexroll] ❌  HTTP {r.status_code} from {url}")
+                if body:
+                    print(f"             Response: {body}")
+                return None
             return r
 
         except requests.exceptions.ConnectionError:
@@ -859,8 +866,12 @@ def nexroll_get_or_create_category(category_name: str) -> int | None:
     if r is None:
         return None
 
-    cat_id = r.json().get("id")
-    print(f"  [nexroll] Created category '{category_name}'  id={cat_id}")
+    data   = r.json()
+    # NeXroll may nest the ID — try common response shapes
+    cat_id = (data.get("id")
+              or data.get("category_id")
+              or (data.get("category") or {}).get("id"))
+    print(f"  [nexroll] Created category '{category_name}'  id={cat_id}  response={data}")
     return cat_id
 
 
@@ -892,7 +903,8 @@ def nexroll_register(output_name: str, out_path: Path):
     base         = NEXROLL_URL.rstrip("/")
 
     print(f"  [nexroll] Registering '{display_name}'")
-    print(f"            file_path: {host_path}")
+    print(f"            file_path:    {host_path}")
+    print(f"            category_id:  {cat_id}")
 
     # 1 — Look up / create category
     cat_id = nexroll_get_or_create_category(category_name)
