@@ -38,7 +38,7 @@ except ImportError:
     sys.exit(1)
 
 
-VERSION = "1.9.8"
+VERSION = "1.9.9"
 
 # ══════════════════════════════════════════════════════════════
 #  GLOBAL ENV — connection / quality settings, never from yaml
@@ -875,11 +875,34 @@ def nexroll_get_or_create_category(category_name: str) -> int | None:
     return cat_id
 
 
+def nexroll_find_existing(host_path: str, base: str) -> dict | None:
+    """
+    Check if a preroll with this exact path is already registered in NeXroll.
+    Returns the preroll dict if found, None otherwise.
+    """
+    r = _nexroll_request("GET", f"{base}/external/prerolls",
+                         params=_nexroll_params(), timeout=10)
+    if r is None:
+        return None
+
+    data     = r.json()
+    prerolls = data.get("prerolls", data) if isinstance(data, dict) else data
+    for p in prerolls:
+        existing_path = p.get("path") or p.get("file_path") or p.get("full_path", "")
+        if existing_path == host_path:
+            return p
+    return None
+
+
 def nexroll_register(output_name: str, out_path: Path):
     """
-    Register the rendered video with NeXroll after a successful render.
+    Register (or skip if already registered) the rendered video with NeXroll.
     Uses CFG for per-job settings. Skips silently if NEXROLL_REGISTER=False
     or if NEXROLL_URL / NEXROLL_API_KEY are not configured.
+
+    NeXroll has no upsert endpoint — we check for an existing entry by path
+    first and skip re-registration if found. The video file on disk is always
+    updated by the render step regardless.
     """
     if not CFG["NEXROLL_REGISTER"]:
         return
@@ -897,7 +920,7 @@ def nexroll_register(output_name: str, out_path: Path):
     if NEXROLL_OUTPUT_PATH:
         host_path = str(NEXROLL_OUTPUT_PATH).rstrip("/") + "/" + out_path.name
     else:
-        host_path = str(out_path)   # best-effort if no mapping given
+        host_path = str(out_path)
 
     display_name = CFG["NEXROLL_DISPLAY_NAME"].strip() or output_name
     base         = NEXROLL_URL.rstrip("/")
@@ -905,14 +928,21 @@ def nexroll_register(output_name: str, out_path: Path):
     print(f"  [nexroll] Registering '{display_name}'")
     print(f"            file_path:    {host_path}")
 
-    # 1 — Look up / create category
+    # 1 — Check if already registered (avoid duplicates on repeat runs)
+    existing = nexroll_find_existing(host_path, base)
+    if existing:
+        print(f"  [nexroll] ✅  Already registered  id={existing.get('id')}  — skipping"
+              f" (file on disk updated, NeXroll entry unchanged)")
+        return
+
+    # 2 — Look up / create category
     cat_id = nexroll_get_or_create_category(category_name)
     if cat_id is None:
         return
 
     print(f"            category_id:  {cat_id}")
 
-    # 2 — Register the preroll
+    # 3 — Register the preroll
     payload = {
         "path":         host_path,
         "display_name": display_name,
@@ -930,7 +960,7 @@ def nexroll_register(output_name: str, out_path: Path):
     preroll = r.json()
     print(f"  [nexroll] ✅  Registered  id={preroll.get('id')}  category='{category_name}'")
 
-    # 3 — Optionally apply category to Plex immediately
+    # 4 — Optionally apply category to Plex immediately
     if CFG["NEXROLL_APPLY_TO_PLEX"]:
         r = _nexroll_request(
             "POST", f"{base}/external/apply-category/{cat_id}",
