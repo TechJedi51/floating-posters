@@ -43,6 +43,9 @@ COPY app/ .
 # /output  — rendered output video appears here
 VOLUME ["/input", "/output"]
 
+# ── Force Python stdout/stderr to flush immediately (critical for Docker logs) ──
+ENV PYTHONUNBUFFERED=1
+
 # ── Default environment ───────────────────────────────────────
 ENV INPUT_VIDEO=/input/background.mp4
 ENV OUTPUT_VIDEO=/output/output.mp4

@@ -37,7 +37,7 @@ if [ -z "$RERUN_INTERVAL" ]; then
     echo "┌─────────────────────────────────────────────────────┐"
     echo "│  floating-posters  —  single run mode               │"
     echo "└─────────────────────────────────────────────────────┘"
-    exec python3 /app/floating_posters.py
+    exec python3 -u /app/floating_posters.py
 fi
 
 # ── Scheduled loop mode ───────────────────────────────────────

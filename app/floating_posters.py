@@ -38,7 +38,7 @@ except ImportError:
     sys.exit(1)
 
 
-VERSION = "1.9.7"
+VERSION = "1.9.8"
 
 # ══════════════════════════════════════════════════════════════
 #  GLOBAL ENV — connection / quality settings, never from yaml
