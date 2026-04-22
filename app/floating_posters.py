@@ -15,6 +15,7 @@ from environment variables. Per-video settings come from the yaml.
 
 import os
 import sys
+import time
 import math
 import random
 import tempfile
@@ -37,7 +38,7 @@ except ImportError:
     sys.exit(1)
 
 
-VERSION = "1.9.1"
+VERSION = "1.9.2"
 
 # ══════════════════════════════════════════════════════════════
 #  GLOBAL ENV — connection / quality settings, never from yaml
@@ -55,6 +56,12 @@ OUTPUT_DIR          = os.getenv("OUTPUT_DIR",          "/output")
 NEXROLL_URL         = os.getenv("NEXROLL_URL",         "")
 NEXROLL_API_KEY     = os.getenv("NEXROLL_API_KEY",     "")
 NEXROLL_OUTPUT_PATH = os.getenv("NEXROLL_OUTPUT_PATH", "")
+
+# ── Startup retry ────────────────────────────────────────────
+# How many times to retry connecting to Radarr/Sonarr before giving up.
+# Useful when floating-posters starts before the *arr services are ready.
+STARTUP_RETRY_ATTEMPTS = int(os.getenv("STARTUP_RETRY_ATTEMPTS", "5"))
+STARTUP_RETRY_DELAY    = int(os.getenv("STARTUP_RETRY_DELAY",    "30"))
 
 VIDEO_EXTENSIONS = {".mov", ".mp4", ".m4v", ".mpg", ".mpeg", ".mkv", ".m4a"}
 
@@ -221,12 +228,20 @@ def get_upcoming_movies(n: int) -> list:
         sys.exit(1)
 
     headers = {"X-Api-Key": RADARR_API_KEY}
-    try:
-        resp = requests.get(f"{RADARR_URL}/api/v3/movie", headers=headers, timeout=15)
-        resp.raise_for_status()
-    except requests.RequestException as e:
-        print(f"ERROR: Radarr unreachable at {RADARR_URL}\n  {e}")
-        sys.exit(1)
+    resp    = None
+    for attempt in range(1, STARTUP_RETRY_ATTEMPTS + 1):
+        try:
+            resp = requests.get(f"{RADARR_URL}/api/v3/movie", headers=headers, timeout=15)
+            resp.raise_for_status()
+            break
+        except requests.RequestException as e:
+            if attempt < STARTUP_RETRY_ATTEMPTS:
+                print(f"  ⚠  Radarr not ready (attempt {attempt}/{STARTUP_RETRY_ATTEMPTS}): {e}")
+                print(f"     Retrying in {STARTUP_RETRY_DELAY}s...")
+                time.sleep(STARTUP_RETRY_DELAY)
+            else:
+                print(f"ERROR: Radarr unreachable at {RADARR_URL} after {STARTUP_RETRY_ATTEMPTS} attempts\n  {e}")
+                sys.exit(1)
 
     now      = datetime.now(timezone.utc)
     upcoming = []
@@ -281,13 +296,21 @@ def get_upcoming_tv(n: int) -> list:
         "end":           end.strftime("%Y-%m-%d"),
         "includeSeries": "true",
     }
-    try:
-        resp = requests.get(f"{SONARR_URL}/api/v3/calendar",
-                            headers=headers, params=params, timeout=15)
-        resp.raise_for_status()
-    except requests.RequestException as e:
-        print(f"ERROR: Sonarr unreachable at {SONARR_URL}\n  {e}")
-        sys.exit(1)
+    resp = None
+    for attempt in range(1, STARTUP_RETRY_ATTEMPTS + 1):
+        try:
+            resp = requests.get(f"{SONARR_URL}/api/v3/calendar",
+                                headers=headers, params=params, timeout=15)
+            resp.raise_for_status()
+            break
+        except requests.RequestException as e:
+            if attempt < STARTUP_RETRY_ATTEMPTS:
+                print(f"  ⚠  Sonarr not ready (attempt {attempt}/{STARTUP_RETRY_ATTEMPTS}): {e}")
+                print(f"     Retrying in {STARTUP_RETRY_DELAY}s...")
+                time.sleep(STARTUP_RETRY_DELAY)
+            else:
+                print(f"ERROR: Sonarr unreachable at {SONARR_URL} after {STARTUP_RETRY_ATTEMPTS} attempts\n  {e}")
+                sys.exit(1)
 
     # Collect unique series keyed by seriesId, tracking earliest air date
     series_map: dict = {}
@@ -943,6 +966,7 @@ def main():
     print(f"  Radarr:      {RADARR_URL}")
     print(f"  Sonarr:      {SONARR_URL}")
     print(f"  Threads:     {CPU_THREADS}   CRF: {VIDEO_CRF}   Preset: {VIDEO_PRESET}")
+    print(f"  Retry:       {STARTUP_RETRY_ATTEMPTS} attempts  delay: {STARTUP_RETRY_DELAY}s")
     if NEXROLL_URL:
         print(f"  NeXroll:     {NEXROLL_URL}")
     print("═" * 54)
