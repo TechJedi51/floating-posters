@@ -1,4 +1,4 @@
-# 🎬 floating-posters  `v1.4.0`
+# 🎬 floating-posters  `v1.5.0`
 
 A Docker container that fetches upcoming movie posters from **Radarr** and composites them as **floating, animated overlays** onto a background video — ready to drop into [NeXroll](https://github.com/JFLXCLOUD/NeXroll) as a Plex preroll.
 
@@ -141,6 +141,8 @@ All settings are environment variables. See [`.env.example`](.env.example) for t
 | `TOP_MESSAGE_COLOR` | `white` | Hex (`#RRGGBB`) or CSS color name |
 | `TOP_MESSAGE_SIZE` | `15` | Font size in pixels |
 | `TOP_MESSAGE_SHADOW` | `false` | Drop shadow behind text |
+| `TOP_MESSAGE_BG_COLOR` | `#000000` | Pill background color — hex or CSS name |
+| `TOP_MESSAGE_BG_OPACITY` | `170` | Background opacity: `0`=none · `170`=semi · `255`=solid |
 
 ### Release date label *(new in v1.1.0)*
 
@@ -169,6 +171,8 @@ All settings are environment variables. See [`.env.example`](.env.example) for t
 | `BOTTOM_MESSAGE_COLOR` | `white` | Hex (`#RRGGBB`) or CSS color name |
 | `BOTTOM_MESSAGE_SIZE` | `15` | Font size in pixels |
 | `BOTTOM_MESSAGE_SHADOW` | `false` | Drop shadow behind text |
+| `BOTTOM_MESSAGE_BG_COLOR` | `#000000` | Pill background color — hex or CSS name |
+| `BOTTOM_MESSAGE_BG_OPACITY` | `170` | Background opacity: `0`=none · `170`=semi · `255`=solid |
 
 ### Float animation
 
@@ -220,7 +224,7 @@ docker run --rm \
 On every push to `main`, GitHub Actions automatically:
 - Builds for `linux/amd64` and `linux/arm64` (Apple Silicon / Unraid)
 - Pushes `ghcr.io/TechJedi51/floating-posters:latest`
-- Tags version releases (`v1.4.0`) as `:1.4.0` and `:1.4`
+- Tags version releases (`v1.5.0`) as `:1.5.0` and `:1.5`
 
 The `GITHUB_TOKEN` is used automatically — no secrets to configure.
 
@@ -236,6 +240,11 @@ brew install ffmpeg   # macOS
 ---
 
 ## Changelog
+
+### v1.5.0
+- Added `*_BG_COLOR` and `*_BG_OPACITY` for all three text areas (release date, top message, bottom message)
+- Set `BG_OPACITY=0` to remove the pill background entirely (text only, relies on shadow for legibility)
+- Background color accepts any hex value or CSS name (`transparent` not valid — use `BG_OPACITY=0` instead)
 
 ### v1.4.0
 - Added `FONT` config — choose from 17 bundled fonts; Poppins-Bold is the new default (downloaded from Google Fonts during Docker build)
