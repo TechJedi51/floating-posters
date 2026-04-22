@@ -1,4 +1,4 @@
-# 🎬 floating-posters  `v1.2.0`
+# 🎬 floating-posters  `v1.3.0`
 
 A Docker container that fetches upcoming movie posters from **Radarr** and composites them as **floating, animated overlays** onto a background video — ready to drop into [NeXroll](https://github.com/JFLXCLOUD/NeXroll) as a Plex preroll.
 
@@ -139,6 +139,16 @@ All settings are environment variables. See [`.env.example`](.env.example) for t
 
 > Also set `deploy.resources.limits.cpus` in `docker-compose.yml` to cap the container itself.
 
+### Bottom message *(new in v1.3.0)*
+
+| Variable | Default | Description |
+|---|---|---|
+| `BOTTOM_MESSAGE_SHOW` | `false` | Enable the bottom message overlay |
+| `BOTTOM_MESSAGE` | *(empty)* | Text to display at the bottom of the screen |
+| `BOTTOM_MESSAGE_ADD_DATE` | `true` | Append today's date — e.g. `Updated  April 20, 2026` |
+| `BOTTOM_MESSAGE_COLOR` | `white` | Hex (`#RRGGBB`) or CSS color name |
+| `BOTTOM_MESSAGE_SIZE` | `15` | Font size in pixels |
+
 ### Float animation
 
 | Variable | Default | Description |
@@ -189,7 +199,7 @@ docker run --rm \
 On every push to `main`, GitHub Actions automatically:
 - Builds for `linux/amd64` and `linux/arm64` (Apple Silicon / Unraid)
 - Pushes `ghcr.io/TechJedi51/floating-posters:latest`
-- Tags version releases (`v1.2.0`) as `:1.2.0` and `:1.2`
+- Tags version releases (`v1.3.0`) as `:1.3.0` and `:1.3`
 
 The `GITHUB_TOKEN` is used automatically — no secrets to configure.
 
@@ -205,6 +215,13 @@ brew install ffmpeg   # macOS
 ---
 
 ## Changelog
+
+### v1.3.0
+- **Fixed release date not showing** — root cause was a broken indentation in the previous string replacement that put `poster_images.append()` inside the wrong branch; text rendering architecture completely reworked
+- Text labels (date, bottom message) are now **separate clips** in the composite instead of being embedded in the poster RGBA image — sidesteps the alpha pipeline entirely and is guaranteed to work
+- **Date format** changed to `April 20, 2026` style (no platform-specific strftime modifiers)
+- **Date labels float in sync with their poster** (same sine-wave phase)
+- Added `BOTTOM_MESSAGE` overlay — centered at the bottom of the screen, fades with the poster group; optionally appends today's date
 
 ### v1.2.0
 - **Security**: upgraded to Python 3.13, added `apt-get upgrade` for patched openssl/libssl
