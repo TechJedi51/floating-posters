@@ -1,4 +1,4 @@
-# 🎬 floating-posters  `v1.7.0`
+# 🎬 floating-posters  `v1.8.0`
 
 A Docker container that fetches upcoming movie and TV posters from **Radarr** and **Sonarr**, and composites them as **floating, animated overlays** onto background videos — ready to drop into [NeXroll](https://github.com/JFLXCLOUD/NeXroll) as Plex prerolls.
 
@@ -58,6 +58,10 @@ services:
       - RADARR_API_KEY=${RADARR_API_KEY}
       - SONARR_URL=http://192.168.1.100:8989
       - SONARR_API_KEY=${SONARR_API_KEY}
+      # NeXroll registration (optional)
+      - NEXROLL_URL=http://192.168.1.100:9393
+      - NEXROLL_API_KEY=${NEXROLL_API_KEY}
+      - NEXROLL_OUTPUT_PATH=/host/path/to/output
       - CPU_THREADS=2
       - VIDEO_CRF=18
       - VIDEO_PRESET=fast
@@ -86,6 +90,9 @@ Only global / connection settings go here. All per-video settings go in the yaml
 | `RADARR_API_KEY` | *(required)* | Radarr → Settings → General → API Key |
 | `SONARR_URL` | `http://localhost:8989` | Sonarr base URL (required for `tv:` yamls) |
 | `SONARR_API_KEY` | *(optional)* | Sonarr API Key |
+| `NEXROLL_URL` | *(optional)* | NeXroll base URL — enables registration if set |
+| `NEXROLL_API_KEY` | *(optional)* | NeXroll full-access API key (Settings → API Keys) |
+| `NEXROLL_OUTPUT_PATH` | *(optional)* | Host path NeXroll sees for your output folder |
 | `CPU_THREADS` | `2` | FFmpeg thread limit (`0` = unlimited) |
 | `VIDEO_CRF` | `18` | `18`=near-lossless · `23`=default · `28`=smaller |
 | `VIDEO_PRESET` | `fast` | `ultrafast`/`fast`/`medium`/`slow` |
@@ -195,6 +202,22 @@ movie:               # or tv: for Sonarr
 | `BOTTOM_MESSAGE_BG_COLOR` | `#000000` | Pill background |
 | `BOTTOM_MESSAGE_BG_OPACITY` | `170` | `0`=none · `255`=solid |
 
+### NeXroll registration
+
+After each successful render, floating-posters can automatically register the output with NeXroll — creating the category if needed and optionally applying it to Plex immediately.
+
+Requires `NEXROLL_URL`, `NEXROLL_API_KEY`, and `NEXROLL_OUTPUT_PATH` in docker-compose. The API key must be **full access** (Settings → API Keys in NeXroll).
+
+| Setting | Default | Description |
+|---|---|---|
+| `NEXROLL_REGISTER` | `false` | Enable registration after render |
+| `NEXROLL_CATEGORY` | *(empty)* | NeXroll category name to register under |
+| `NEXROLL_DISPLAY_NAME` | *(empty)* | Display name in NeXroll (defaults to `output=` value) |
+| `NEXROLL_CREATE_CATEGORY` | `true` | Create the category in NeXroll if it doesn't exist |
+| `NEXROLL_APPLY_TO_PLEX` | `false` | Immediately apply the category to Plex after registering |
+
+**`NEXROLL_OUTPUT_PATH` explained:** NeXroll runs on your host machine and registers prerolls by their filesystem path. Since this container writes to `/output` internally, you need to tell it what path NeXroll sees that folder as on the host. For example if your docker-compose volume is `- /mnt/media/prerolls/output:/output`, set `NEXROLL_OUTPUT_PATH=/mnt/media/prerolls/output`.
+
 ### Float animation
 
 | Setting | Default | Description |
@@ -234,11 +257,18 @@ docker run --rm \
 On every push to `main`, GitHub Actions automatically:
 - Builds for `linux/amd64` and `linux/arm64` (Apple Silicon / Unraid)
 - Pushes `ghcr.io/TechJedi51/floating-posters:latest`
-- Tags version releases (`v1.7.0`) as `:1.7.0` and `:1.7`
+- Tags version releases (`v1.8.0`) as `:1.8.0` and `:1.8`
 
 ---
 
 ## Changelog
+
+### v1.8.0
+- **NeXroll integration**: after each render, optionally register the output as a preroll in NeXroll via `POST /external/prerolls/register`
+- Category lookup via `GET /external/categories`; auto-creates category if not found (`NEXROLL_CREATE_CATEGORY`)
+- Optional immediate Plex sync via `POST /external/apply-category/{id}` (`NEXROLL_APPLY_TO_PLEX`)
+- `NEXROLL_OUTPUT_PATH` maps container `/output` to the host path NeXroll can access
+- NeXroll URL shown in startup log if configured
 
 ### v1.7.0
 - **New architecture**: scan-based multi-video processing — one run processes all video+yaml pairs in `/input`

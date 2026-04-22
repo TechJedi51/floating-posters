@@ -75,3 +75,12 @@ movie:
   # ── Float animation ──────────────────────────────────────────
   - FLOAT_AMPLITUDE=14.0
   - FLOAT_SPEED=0.55
+
+  # ── NeXroll registration ─────────────────────────────────────
+  # Registers the rendered video with NeXroll after a successful render.
+  # Requires NEXROLL_URL and NEXROLL_API_KEY in docker-compose env.
+  - NEXROLL_REGISTER=false
+  - NEXROLL_CATEGORY=Coming Soon          # Category name in NeXroll
+  - NEXROLL_DISPLAY_NAME=                 # Display name (defaults to output= value)
+  - NEXROLL_CREATE_CATEGORY=true          # Create the category if it doesn't exist
+  - NEXROLL_APPLY_TO_PLEX=false           # Immediately apply category to Plex after registering
