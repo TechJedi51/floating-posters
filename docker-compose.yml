@@ -38,6 +38,12 @@ services:
       - NEXROLL_API_KEY=${NEXROLL_API_KEY}
       # See volume options above for NEXROLL_OUTPUT_PATH guidance
 
+      # ── Startup retry ──────────────────────────────────────────
+      # Retries connecting to Radarr/Sonarr on startup.
+      # Useful when floating-posters starts before *arr services are ready.
+      - STARTUP_RETRY_ATTEMPTS=5   # number of attempts before giving up
+      - STARTUP_RETRY_DELAY=30     # seconds between attempts
+
       # ── Scheduler ─────────────────────────────────────────────
       # Leave unset (or remove) to run once and exit.
       # Set to run on a repeating schedule — container stays running.
@@ -48,6 +54,13 @@ services:
       - CPU_THREADS=2
       - VIDEO_CRF=18
       - VIDEO_PRESET=fast
+
+    # depends_on ensures Radarr/Sonarr containers start first.
+    # Note: this only guarantees container start order, not service
+    # readiness — use STARTUP_RETRY_ATTEMPTS/DELAY to handle that.
+    depends_on:
+      - radarr
+      - sonarr
 
     restart: unless-stopped    # keep container alive between runs
     deploy:

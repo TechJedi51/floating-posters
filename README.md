@@ -1,4 +1,4 @@
-# 🎬 floating-posters  `v1.9.1`
+# 🎬 floating-posters  `v1.9.2`
 
 A Docker container that fetches upcoming movie and TV posters from **Radarr** and **Sonarr**, and composites them as **floating, animated overlays** onto background videos — ready to drop into [NeXroll](https://github.com/JFLXCLOUD/NeXroll) as Plex prerolls.
 
@@ -72,6 +72,8 @@ services:
           cpus: "2.0"
 ```
 
+> **Tip:** If floating-posters is in the same stack as Radarr and Sonarr, add `depends_on: [radarr, sonarr]` to ensure container start order. The `STARTUP_RETRY_ATTEMPTS` and `STARTUP_RETRY_DELAY` env vars handle the gap between a container starting and the service being ready to accept API calls.
+
 ### 3. Run it
 
 ```bash
@@ -93,6 +95,8 @@ Only global / connection settings go here. All per-video settings go in the yaml
 | `NEXROLL_URL` | *(optional)* | NeXroll base URL — enables registration if set |
 | `NEXROLL_API_KEY` | *(optional)* | NeXroll full-access API key (Settings → API Keys) |
 | `NEXROLL_OUTPUT_PATH` | *(optional)* | Host path NeXroll sees for your output folder |
+| `STARTUP_RETRY_ATTEMPTS` | `5` | Times to retry connecting to Radarr/Sonarr before giving up |
+| `STARTUP_RETRY_DELAY` | `30` | Seconds between retry attempts |
 | `CPU_THREADS` | `2` | FFmpeg thread limit (`0` = unlimited) |
 | `VIDEO_CRF` | `18` | `18`=near-lossless · `23`=default · `28`=smaller |
 | `VIDEO_PRESET` | `fast` | `ultrafast`/`fast`/`medium`/`slow` |
@@ -264,6 +268,36 @@ With this setup there is no need for `NEXROLL_OUTPUT_PATH` to translate between 
 
 ---
 
+## Startup retry
+
+When floating-posters starts at the same time as Radarr/Sonarr (e.g. on a fresh stack deploy or reboot), the *arr services may not be ready to accept API calls immediately even after their containers are running. The retry settings handle this gracefully:
+
+| Variable | Default | Description |
+|---|---|---|
+| `STARTUP_RETRY_ATTEMPTS` | `5` | Number of connection attempts before giving up |
+| `STARTUP_RETRY_DELAY` | `30` | Seconds to wait between attempts |
+
+With defaults, floating-posters will wait up to **2.5 minutes** for Radarr/Sonarr to become available before failing. Each attempt is logged:
+
+```
+  ⚠  Radarr not ready (attempt 1/5): Connection refused
+     Retrying in 30s...
+  ⚠  Radarr not ready (attempt 2/5): Connection refused
+     Retrying in 30s...
+  [font] Poppins-Bold  size=15
+  ...
+```
+
+If you're running floating-posters in the same docker-compose stack as Radarr and Sonarr, also add `depends_on` to ensure container start order:
+
+```yaml
+depends_on:
+  - radarr
+  - sonarr
+```
+
+> **Note:** `depends_on` only guarantees that the Radarr/Sonarr *containers* start before floating-posters — not that the services inside them are ready. The retry logic handles the remaining gap.
+
 ## Scheduling
 
 Set `RERUN_INTERVAL` in docker-compose and change `restart: unless-stopped` — the container runs immediately on start, then sleeps and repeats automatically. No cron, no external scheduler needed.
@@ -301,6 +335,36 @@ Logs show each run number, timestamp, and next scheduled run time:
 
 If a run fails (non-zero exit), the container logs a warning and continues to the next scheduled run rather than crashing.
 
+## Startup retry
+
+When floating-posters starts at the same time as Radarr/Sonarr (e.g. on a fresh stack deploy or reboot), the *arr services may not be ready to accept API calls immediately even after their containers are running. The retry settings handle this gracefully:
+
+| Variable | Default | Description |
+|---|---|---|
+| `STARTUP_RETRY_ATTEMPTS` | `5` | Number of connection attempts before giving up |
+| `STARTUP_RETRY_DELAY` | `30` | Seconds to wait between attempts |
+
+With defaults, floating-posters will wait up to **2.5 minutes** for Radarr/Sonarr to become available before failing. Each attempt is logged:
+
+```
+  ⚠  Radarr not ready (attempt 1/5): Connection refused
+     Retrying in 30s...
+  ⚠  Radarr not ready (attempt 2/5): Connection refused
+     Retrying in 30s...
+  [font] Poppins-Bold  size=15
+  ...
+```
+
+If you're running floating-posters in the same docker-compose stack as Radarr and Sonarr, also add `depends_on` to ensure container start order:
+
+```yaml
+depends_on:
+  - radarr
+  - sonarr
+```
+
+> **Note:** `depends_on` only guarantees that the Radarr/Sonarr *containers* start before floating-posters — not that the services inside them are ready. The retry logic handles the remaining gap.
+
 ## Scheduling with cron
 
 If you prefer host-level cron over the built-in scheduler, leave `RERUN_INTERVAL` unset (`restart: "no"`) and use a crontab entry instead:
@@ -333,11 +397,16 @@ docker run --rm \
 On every push to `main`, GitHub Actions automatically:
 - Builds for `linux/amd64` and `linux/arm64` (Apple Silicon / Unraid)
 - Pushes `ghcr.io/TechJedi51/floating-posters:latest`
-- Tags version releases (`v1.9.1`) as `:1.9.1` and `:1.9`
+- Tags version releases (`v1.9.2`) as `:1.9.2` and `:1.9`
 
 ---
 
 ## Changelog
+
+### v1.9.2
+- **Startup retry**: Radarr and Sonarr connection attempts now retry with configurable delay (`STARTUP_RETRY_ATTEMPTS=5`, `STARTUP_RETRY_DELAY=30`) instead of immediately failing — handles the gap between container start and service readiness
+- **`depends_on`** added to docker-compose sample so Radarr/Sonarr containers start before floating-posters
+- Retry progress logged per-attempt with attempt count and delay
 
 ### v1.9.1
 - Clarified output configuration in `docker-compose.yml` and README — documented both standalone (`/output` bind mount) and NeXroll shared volume (`OUTPUT_DIR` + `NEXROLL_OUTPUT_PATH`) setups
