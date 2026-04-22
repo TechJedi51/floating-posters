@@ -1,6 +1,6 @@
-# 🎬 floating-posters  `v1.6.0`
+# 🎬 floating-posters  `v1.7.0`
 
-A Docker container that fetches upcoming movie posters from **Radarr** and composites them as **floating, animated overlays** onto a background video — ready to drop into [NeXroll](https://github.com/JFLXCLOUD/NeXroll) as a Plex preroll.
+A Docker container that fetches upcoming movie and TV posters from **Radarr** and **Sonarr**, and composites them as **floating, animated overlays** onto background videos — ready to drop into [NeXroll](https://github.com/JFLXCLOUD/NeXroll) as Plex prerolls.
 
 ![GitHub Actions](https://github.com/TechJedi51/floating-posters/actions/workflows/docker-build.yml/badge.svg)
 
@@ -8,12 +8,31 @@ A Docker container that fetches upcoming movie posters from **Radarr** and compo
 
 ## How it works
 
-1. Queries your Radarr library for upcoming releases (sorted by nearest release date)
-2. Downloads poster art for the selected movies
-3. Composites 1–6 posters as floating overlays on your background video
-4. Each poster group fades in, floats gently (staggered sine-wave motion), and fades out
-5. Optionally renders the release date beneath each poster
-6. Saves the finished video to your output directory
+1. Scans `/input` for video files (`.mov`, `.mp4`, `.m4v`, `.mpg`, `.mkv`)
+2. Each video must have a matching `.yaml` file with the same name
+3. The yaml top-level key determines the poster source:
+   - `movie:` → fetches posters from **Radarr**
+   - `tv:` → fetches posters from **Sonarr**
+4. Each video is processed independently using its yaml settings
+5. Output files are saved to `/output` named by the `output=` field in the yaml
+
+---
+
+## Source folder layout
+
+```
+/input/
+  RedCurtainsv2.mov       ← background video
+  RedCurtainsv2.yaml      ← matching config (must be same name)
+  TheaterSmokev1.mov
+  TheaterSmokev1.yaml
+```
+
+```
+/output/
+  RedCurtains.mp4         ← named by output= in the yaml
+  TheaterSmokev1.mp4
+```
 
 ---
 
@@ -25,44 +44,31 @@ A Docker container that fetches upcoming movie posters from **Radarr** and compo
 docker pull ghcr.io/TechJedi51/floating-posters:latest
 ```
 
-### 2. Run it
-
-```bash
-docker run --rm \
-  -v /path/to/background.mp4:/input/background.mp4:ro \
-  -v /path/to/output:/output \
-  -e RADARR_URL=http://your-radarr:7878 \
-  -e RADARR_API_KEY=your_api_key \
-  ghcr.io/TechJedi51/floating-posters:latest
-```
-
-The finished video will be at `/path/to/output/output.mp4`.
-
----
-
-## docker-compose
-
-Copy `docker-compose.yml` and edit the `volumes` and `environment` sections:
+### 2. docker-compose.yml
 
 ```yaml
 services:
   floating-posters:
     image: ghcr.io/TechJedi51/floating-posters:latest
     volumes:
-      - /mnt/media/prerolls/background.mp4:/input/background.mp4:ro
-      - /mnt/media/prerolls/output:/output
+      - /path/to/source:/input
+      - /path/to/output:/output
     environment:
       - RADARR_URL=http://192.168.1.100:7878
-      - RADARR_API_KEY=abc123yourkeyhere
-      - NUM_POSTERS=5
-      - START_TIME=3.0
-      - POSTER_DURATION=9.0
-      - SHOW_RELEASE_DATE=true
-      - RELEASE_DATE_COLOR=#FFFFFF
+      - RADARR_API_KEY=${RADARR_API_KEY}
+      - SONARR_URL=http://192.168.1.100:8989
+      - SONARR_API_KEY=${SONARR_API_KEY}
+      - CPU_THREADS=2
+      - VIDEO_CRF=18
+      - VIDEO_PRESET=fast
     restart: "no"
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
 ```
 
-Then run:
+### 3. Run it
 
 ```bash
 docker compose run --rm floating-posters
@@ -70,137 +76,140 @@ docker compose run --rm floating-posters
 
 ---
 
-## Configuration
+## docker-compose environment
 
-All settings are environment variables. See [`.env.example`](.env.example) for the full list with descriptions.
-
-### Font *(new in v1.4.0)*
-
-| Variable | Default | Description |
-|---|---|---|
-| `FONT` | `Poppins-Bold` | Font name for all text overlays. See full list below. |
-
-**Available fonts** (all included in the image):
-`Poppins-Bold` · `Poppins-Medium` · `Poppins-Regular` · `DejaVuSans-Bold` · `DejaVuSans` · `DejaVuSerif-Bold` · `DejaVuSerif` · `DejaVuSansMono-Bold` · `DejaVuSansCondensed-Bold` · `LiberationSans-Bold` · `LiberationSans` · `LiberationSerif-Bold` · `LiberationMono-Bold` · `FreeSansBold` · `FreeSerifBold` · `Carlito-Bold` · `Caladea-Bold`
-
-### Radarr connection
+Only global / connection settings go here. All per-video settings go in the yaml.
 
 | Variable | Default | Description |
 |---|---|---|
 | `RADARR_URL` | `http://localhost:7878` | Radarr base URL |
 | `RADARR_API_KEY` | *(required)* | Radarr → Settings → General → API Key |
+| `SONARR_URL` | `http://localhost:8989` | Sonarr base URL (required for `tv:` yamls) |
+| `SONARR_API_KEY` | *(optional)* | Sonarr API Key |
+| `CPU_THREADS` | `2` | FFmpeg thread limit (`0` = unlimited) |
+| `VIDEO_CRF` | `18` | `18`=near-lossless · `23`=default · `28`=smaller |
+| `VIDEO_PRESET` | `fast` | `ultrafast`/`fast`/`medium`/`slow` |
 
-### File paths
+---
 
-| Variable | Default | Description |
+## yaml format
+
+See `.yaml.example` for a fully annotated template. The structure is:
+
+```yaml
+movie:               # or tv: for Sonarr
+  - output=MyPreroll
+  - FONT=Poppins-Bold
+  - NUM_POSTERS=10
+  - START_TIME=3.0
+  - TOP_MESSAGE_SHOW=true
+  - TOP_MESSAGE=Coming Soon to SEAL iPlex
+  - TOP_MESSAGE_SIZE=90
+  - TOP_MESSAGE_BG_OPACITY=0
+  - BOTTOM_MESSAGE_SHOW=true
+  - BOTTOM_MESSAGE=Updated
+  - BOTTOM_MESSAGE_ADD_DATE=true
+  ...
+```
+
+### Font
+
+| Setting | Default | Options |
 |---|---|---|
-| `INPUT_VIDEO` | `/input/background.mp4` | Background video path inside container |
-| `OUTPUT_VIDEO` | `/output/output.mp4` | Output path inside container |
+| `FONT` | `Poppins-Bold` | See full list below |
 
-### Timing
-
-| Variable | Default | Description |
-|---|---|---|
-| `START_TIME` | `2.0` | Seconds into video where posters first appear |
-| `POSTER_DURATION` | `8.0` | How long posters are visible (max `10.0`) |
-| `FADE_DURATION` | `0.75` | Fade in/out duration in seconds |
+**Available fonts:**
+`Poppins-Bold` · `Poppins-Medium` · `Poppins-Regular` · `DejaVuSans-Bold` · `DejaVuSans` · `DejaVuSerif-Bold` · `DejaVuSerif` · `DejaVuSansMono-Bold` · `DejaVuSansCondensed-Bold` · `LiberationSans-Bold` · `LiberationSans` · `LiberationSerif-Bold` · `LiberationMono-Bold` · `FreeSansBold` · `FreeSerifBold` · `Carlito-Bold` · `Caladea-Bold`
 
 ### Poster selection
 
-| Variable | Default | Description |
+| Setting | Default | Description |
 |---|---|---|
-| `NUM_POSTERS` | `4` | Number of posters (1–10). 6+ triggers automatic 2-row layout. |
+| `NUM_POSTERS` | `4` | 1–10. 6+ triggers automatic 2-row layout. |
 | `UPCOMING_DAYS` | `180` | Days ahead to scan for upcoming releases |
+
+**2-row layout:** 6 (3+3) · 7 (4+3) · 8 (4+4) · 9 (5+4) · 10 (5+5). Each row is independently centred.
+
+### Timing
+
+| Setting | Default | Description |
+|---|---|---|
+| `START_TIME` | `2.0` | Seconds into video where posters appear |
+| `POSTER_DURATION` | `8.0` | How long posters are visible (max 10s) |
+| `FADE_DURATION` | `0.75` | Fade in/out duration |
 
 ### Poster appearance
 
-| Variable | Default | Description |
+| Setting | Default | Description |
 |---|---|---|
-| `POSTER_WIDTH` | `185` | Poster width in pixels (height auto-scales) |
+| `POSTER_WIDTH` | `185` | Width in pixels (height auto-scales) |
 | `PADDING` | `28` | Pixels between posters |
-| `ROW_GAP` | `24` | Pixels between rows (2-row layout only) |
-| `VERTICAL_POS` | `0.52` | Row position: `0.0`=top · `0.5`=center · `1.0`=bottom |
-| `CORNER_RADIUS` | `10` | Rounded corner radius in pixels |
+| `ROW_GAP` | `24` | Pixels between rows (2-row layout) |
+| `VERTICAL_POS` | `0.52` | `0.0`=top · `0.5`=center · `1.0`=bottom |
+| `CORNER_RADIUS` | `10` | Rounded corner radius |
 
 ### Drop shadow
 
-| Variable | Default | Description |
+| Setting | Default | Description |
 |---|---|---|
-| `ADD_SHADOW` | `true` | Drop shadow behind posters |
-| `SHADOW_OFFSET_X` | `7` | Horizontal shadow offset in pixels |
-| `SHADOW_OFFSET_Y` | `9` | Vertical shadow offset in pixels |
-| `SHADOW_BLUR` | `9` | Shadow softness (Gaussian blur radius) |
-| `SHADOW_OPACITY` | `175` | Shadow darkness: `0`=invisible · `255`=solid black |
+| `ADD_SHADOW` | `true` | Poster drop shadow |
+| `SHADOW_OFFSET_X` | `7` | Horizontal offset |
+| `SHADOW_OFFSET_Y` | `9` | Vertical offset |
+| `SHADOW_BLUR` | `9` | Softness (Gaussian blur radius) |
+| `SHADOW_OPACITY` | `175` | `0`=invisible · `255`=solid |
 
-### Top message *(new in v1.4.0)*
+### Release date label
 
-| Variable | Default | Description |
+| Setting | Default | Description |
 |---|---|---|
-| `TOP_MESSAGE_SHOW` | `false` | Enable the top message overlay |
-| `TOP_MESSAGE` | *(empty)* | Text to display at the top of the screen |
-| `TOP_MESSAGE_ADD_DATE` | `false` | Append today's date |
-| `TOP_MESSAGE_COLOR` | `white` | Hex (`#RRGGBB`) or CSS color name |
-| `TOP_MESSAGE_SIZE` | `15` | Font size in pixels |
-| `TOP_MESSAGE_SHADOW` | `false` | Drop shadow behind text |
-| `TOP_MESSAGE_BG_COLOR` | `#000000` | Pill background color — hex or CSS name |
-| `TOP_MESSAGE_BG_OPACITY` | `170` | Background opacity: `0`=none · `170`=semi · `255`=solid |
-
-### Release date label *(new in v1.1.0)*
-
-| Variable | Default | Description |
-|---|---|---|
-| `SHOW_RELEASE_DATE` | `true` | Show release date below each poster |
-| `RELEASE_DATE_COLOR` | `#FFFFFF` | Text color — hex (`#FF6B6B`) or CSS name (`white`, `gold`) |
+| `SHOW_RELEASE_DATE` | `true` | Show date below each poster |
+| `RELEASE_DATE_COLOR` | `#FFFFFF` | Text color |
 | `RELEASE_DATE_SIZE` | `15` | Font size in pixels |
-| `RELEASE_DATE_SHADOW` | `true` | Drop shadow behind the date text |
+| `RELEASE_DATE_SHADOW` | `true` | Drop shadow behind text |
+| `RELEASE_DATE_BG_COLOR` | `#000000` | Pill background color |
+| `RELEASE_DATE_BG_OPACITY` | `170` | `0`=none · `170`=semi · `255`=solid |
 
-### CPU throttle *(new in v1.2.0)*
+### Top message
 
-| Variable | Default | Description |
+| Setting | Default | Description |
 |---|---|---|
-| `CPU_THREADS` | `2` | FFmpeg thread limit. `0` = unlimited (uses all cores) |
+| `TOP_MESSAGE_SHOW` | `false` | Enable top message |
+| `TOP_MESSAGE` | *(empty)* | Text to display |
+| `TOP_MESSAGE_ADD_DATE` | `false` | Append today's date |
+| `TOP_MESSAGE_COLOR` | `white` | Text color |
+| `TOP_MESSAGE_SIZE` | `15` | Font size in pixels |
+| `TOP_MESSAGE_SHADOW` | `false` | Drop shadow |
+| `TOP_MESSAGE_BG_COLOR` | `#000000` | Pill background |
+| `TOP_MESSAGE_BG_OPACITY` | `170` | `0`=none · `255`=solid |
 
-> Also set `deploy.resources.limits.cpus` in `docker-compose.yml` to cap the container itself.
+### Bottom message
 
-### Bottom message *(new in v1.3.0)*
-
-| Variable | Default | Description |
+| Setting | Default | Description |
 |---|---|---|
-| `BOTTOM_MESSAGE_SHOW` | `false` | Enable the bottom message overlay |
-| `BOTTOM_MESSAGE` | *(empty)* | Text to display at the bottom of the screen |
-| `BOTTOM_MESSAGE_ADD_DATE` | `true` | Append today's date — e.g. `Updated  April 20, 2026` |
-| `BOTTOM_MESSAGE_COLOR` | `white` | Hex (`#RRGGBB`) or CSS color name |
+| `BOTTOM_MESSAGE_SHOW` | `false` | Enable bottom message |
+| `BOTTOM_MESSAGE` | *(empty)* | Text to display |
+| `BOTTOM_MESSAGE_ADD_DATE` | `true` | Append today's date |
+| `BOTTOM_MESSAGE_COLOR` | `white` | Text color |
 | `BOTTOM_MESSAGE_SIZE` | `15` | Font size in pixels |
-| `BOTTOM_MESSAGE_SHADOW` | `false` | Drop shadow behind text |
-| `BOTTOM_MESSAGE_BG_COLOR` | `#000000` | Pill background color — hex or CSS name |
-| `BOTTOM_MESSAGE_BG_OPACITY` | `170` | Background opacity: `0`=none · `170`=semi · `255`=solid |
+| `BOTTOM_MESSAGE_SHADOW` | `false` | Drop shadow |
+| `BOTTOM_MESSAGE_BG_COLOR` | `#000000` | Pill background |
+| `BOTTOM_MESSAGE_BG_OPACITY` | `170` | `0`=none · `255`=solid |
 
 ### Float animation
 
-| Variable | Default | Description |
+| Setting | Default | Description |
 |---|---|---|
-| `FLOAT_AMPLITUDE` | `14.0` | Max pixels of vertical drift (sine wave) |
-| `FLOAT_SPEED` | `0.55` | Oscillations per second — lower = slower, dreamier |
-
-### Output encoding
-
-| Variable | Default | Description |
-|---|---|---|
-| `VIDEO_CRF` | `18` | FFmpeg CRF: `18`=near-lossless · `23`=default · `28`=smaller file |
-| `VIDEO_PRESET` | `fast` | FFmpeg preset: `ultrafast`/`fast`/`medium`/`slow` |
+| `FLOAT_AMPLITUDE` | `14.0` | Max pixels of vertical drift |
+| `FLOAT_SPEED` | `0.55` | Oscillations per second |
 
 ---
 
 ## Scheduling with cron
 
-To regenerate the preroll nightly and keep it fresh:
-
 ```cron
-# Regenerate Plex upcoming preroll every night at 2 AM
+# Regenerate prerolls every night at 2 AM
 0 2 * * * docker compose -f /path/to/floating-posters/docker-compose.yml run --rm floating-posters
 ```
-
-Then point NeXroll at the output file as a scheduled preroll.
 
 ---
 
@@ -211,7 +220,7 @@ git clone https://github.com/TechJedi51/floating-posters
 cd floating-posters
 docker build -t floating-posters .
 docker run --rm \
-  -v /path/to/background.mp4:/input/background.mp4:ro \
+  -v /path/to/source:/input \
   -v /path/to/output:/output \
   -e RADARR_URL=http://your-radarr:7878 \
   -e RADARR_API_KEY=your_key \
@@ -225,69 +234,48 @@ docker run --rm \
 On every push to `main`, GitHub Actions automatically:
 - Builds for `linux/amd64` and `linux/arm64` (Apple Silicon / Unraid)
 - Pushes `ghcr.io/TechJedi51/floating-posters:latest`
-- Tags version releases (`v1.6.0`) as `:1.6.0` and `:1.6`
-
-The `GITHUB_TOKEN` is used automatically — no secrets to configure.
-
----
-
-## Requirements (if running without Docker)
-
-```bash
-pip install moviepy pillow requests numpy
-brew install ffmpeg   # macOS
-```
+- Tags version releases (`v1.7.0`) as `:1.7.0` and `:1.7`
 
 ---
 
 ## Changelog
 
+### v1.7.0
+- **New architecture**: scan-based multi-video processing — one run processes all video+yaml pairs in `/input`
+- **yaml-driven config**: all per-video settings move from docker-compose env vars to individual `.yaml` files
+- **Sonarr support**: `tv:` yaml key fetches upcoming TV series posters via Sonarr calendar API
+- **docker-compose simplified**: only connection/quality env vars remain; everything else is per-yaml
+- `pyyaml` added to dependencies
+
 ### v1.6.0
-- **Text wrapping**: top and bottom messages now word-wrap automatically if the text is too wide (wraps at 85% of video width, each line centred in the pill)
-- **Multi-row poster layout**: 6–10 posters automatically split into 2 rows — 6 (3+3), 7 (4+3), 8 (4+4), 9 (5+4), 10 (5+5); each row is independently centred horizontally; float phases spread evenly across all posters
-- Added `ROW_GAP` config for vertical spacing between rows
-- `NUM_POSTERS` max raised from 6 to **10**
-- Layout is logged at startup: e.g. `layout=5+5`
+- Text wrapping for top/bottom messages (word-wraps at 85% of video width)
+- Multi-row poster layout: 6–10 posters split into 2 rows, each row centred independently
+- `ROW_GAP` config; `NUM_POSTERS` max raised to 10
 
 ### v1.5.0
-- Added `*_BG_COLOR` and `*_BG_OPACITY` for all three text areas (release date, top message, bottom message)
-- Set `BG_OPACITY=0` to remove the pill background entirely (text only, relies on shadow for legibility)
-- Background color accepts any hex value or CSS name (`transparent` not valid — use `BG_OPACITY=0` instead)
+- `*_BG_COLOR` and `*_BG_OPACITY` for all three text areas; `BG_OPACITY=0` removes pill
 
 ### v1.4.0
-- Added `FONT` config — choose from 17 bundled fonts; Poppins-Bold is the new default (downloaded from Google Fonts during Docker build)
-- Added font packages to Dockerfile: `fonts-liberation`, `fonts-freefont-ttf`, `fonts-crosextra-carlito`, `fonts-crosextra-caladea`
-- Added `TOP_MESSAGE` overlay with full parity to `BOTTOM_MESSAGE` (`SHOW`, `ADD_DATE`, `COLOR`, `SIZE`, `SHADOW`)
-- Added `BOTTOM_MESSAGE_SHADOW` option (previously hardcoded `true`)
+- `FONT` option with 17 bundled fonts; Poppins-Bold default
+- `TOP_MESSAGE` overlay; `BOTTOM_MESSAGE_SHADOW`
 
 ### v1.3.0
-- **Fixed release date not showing** — root cause was a broken indentation in the previous string replacement that put `poster_images.append()` inside the wrong branch; text rendering architecture completely reworked
-- Text labels (date, bottom message) are now **separate clips** in the composite instead of being embedded in the poster RGBA image — sidesteps the alpha pipeline entirely and is guaranteed to work
-- **Date format** changed to `April 20, 2026` style (no platform-specific strftime modifiers)
-- **Date labels float in sync with their poster** (same sine-wave phase)
-- Added `BOTTOM_MESSAGE` overlay — centered at the bottom of the screen, fades with the poster group; optionally appends today's date
+- Release date labels as separate clips (float in sync with poster)
+- Bottom message overlay; date format `April 20, 2026`
 
 ### v1.2.0
-- **Security**: upgraded to Python 3.13, added `apt-get upgrade` for patched openssl/libssl
-- **CPU limiting**: added `CPU_THREADS` env var (`-threads N` passed to FFmpeg); pair with `deploy.resources.limits.cpus` in docker-compose for a full container cap
-- **Release date fix**: replaced Linux-only `%-m/%-d` strftime modifiers with explicit date formatting; added semi-transparent dark pill background behind label text so it's readable against any video background; improved font fallback for Pillow 10+
+- Python 3.13; `apt-get upgrade` for patched openssl/libssl; `CPU_THREADS`
 
 ### v1.1.0
-- Added release date label below each poster (`SHOW_RELEASE_DATE`, `RELEASE_DATE_COLOR`, `RELEASE_DATE_SIZE`, `RELEASE_DATE_SHADOW`)
-- Fixed `set_opacity` TypeError with moviepy 1.0.3 — replaced with `VideoClip` mask for proper per-frame fade with alpha preservation
-- Poster alpha channel (rounded corners, drop shadow) now correctly composited through the fade animation
+- `SHOW_RELEASE_DATE`, `RELEASE_DATE_COLOR/SIZE/SHADOW`
+- Fixed `set_opacity` TypeError with moviepy 1.0.3
 
 ### v1.0.0
 - Initial release
-- Radarr API integration for upcoming movie poster fetching
-- Floating sine-wave animation with staggered phase per poster
-- Configurable fade in/out, drop shadow, rounded corners
-- Multi-arch Docker image (amd64 + arm64)
-- Full environment variable configuration
 
 ---
 
 ## Credits
 
 Built to work with [NeXroll](https://github.com/JFLXCLOUD/NeXroll) by JFLXCLOUD.  
-Poster art sourced from your Radarr library via the Radarr v3 API.
+Poster art sourced from Radarr and Sonarr via their v3 APIs.

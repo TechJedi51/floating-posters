@@ -6,3 +6,4 @@ imageio>=2.31.0
 imageio-ffmpeg>=0.4.9
 decorator>=4.4.2
 tqdm>=4.65.0
+pyyaml>=6.0

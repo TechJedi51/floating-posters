@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
 """
-floating_posters.py
+floating_posters.py  —  v1.7.0
 ────────────────────────────────────────────────────────────────
-Fetches upcoming movie posters from Radarr and composites them
-as floating, animated overlays onto a background video.
+Scans /input for video files. Each video must have a matching
+.yaml file in the same directory that defines all settings.
 
-All configuration is read from environment variables.
-See .env.example in the repo root for the full list.
+  movie.yaml  →  Radarr (upcoming movies)
+  tv.yaml     →  Sonarr (upcoming TV shows)
+
+Global connection settings (RADARR_URL, SONARR_URL, etc.) come
+from environment variables. Per-video settings come from the yaml.
 ────────────────────────────────────────────────────────────────
 """
 
@@ -15,12 +18,17 @@ import sys
 import math
 import random
 import tempfile
-import argparse
 import requests
 import numpy as np
 from pathlib import Path
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
+
+try:
+    import yaml as _yaml
+except ImportError:
+    print("ERROR: pyyaml not found.  Run:  pip install pyyaml")
+    sys.exit(1)
 
 try:
     from moviepy.editor import VideoFileClip, ImageClip, VideoClip, CompositeVideoClip
@@ -29,100 +37,176 @@ except ImportError:
     sys.exit(1)
 
 
-VERSION = "1.6.0"
+VERSION = "1.7.0"
 
 # ══════════════════════════════════════════════════════════════
-#  CONFIG  —  all values read from environment variables
+#  GLOBAL ENV — connection / quality settings, never from yaml
 # ══════════════════════════════════════════════════════════════
 
-def _float(key, default):
-    try:    return float(os.getenv(key, default))
-    except: return float(default)
-
-def _int(key, default):
-    try:    return int(os.getenv(key, default))
-    except: return int(default)
-
-def _bool(key, default):
-    return os.getenv(key, str(default)).strip().lower() in ("1", "true", "yes")
-
-# ── Radarr ────────────────────────────────────────────────────
 RADARR_URL     = os.getenv("RADARR_URL",     "http://localhost:7878")
 RADARR_API_KEY = os.getenv("RADARR_API_KEY", "")
+SONARR_URL     = os.getenv("SONARR_URL",     "http://localhost:8989")
+SONARR_API_KEY = os.getenv("SONARR_API_KEY", "")
+CPU_THREADS    = int(os.getenv("CPU_THREADS", "2"))
+VIDEO_CRF      = os.getenv("VIDEO_CRF",      "18")
+VIDEO_PRESET   = os.getenv("VIDEO_PRESET",   "fast")
+INPUT_DIR      = os.getenv("INPUT_DIR",      "/input")
+OUTPUT_DIR     = os.getenv("OUTPUT_DIR",     "/output")
 
-# ── File paths ────────────────────────────────────────────────
-INPUT_VIDEO  = os.getenv("INPUT_VIDEO",  "/input/background.mp4")
-OUTPUT_VIDEO = os.getenv("OUTPUT_VIDEO", "/output/output.mp4")
+VIDEO_EXTENSIONS = {".mov", ".mp4", ".m4v", ".mpg", ".mpeg", ".mkv", ".m4a"}
 
-# ── Timing ────────────────────────────────────────────────────
-START_TIME      = _float("START_TIME",      2.0)
-POSTER_DURATION = _float("POSTER_DURATION", 8.0)
-FADE_DURATION   = _float("FADE_DURATION",   0.75)
+# ══════════════════════════════════════════════════════════════
+#  PER-JOB CONFIG  —  defaults, overridden by yaml per video
+# ══════════════════════════════════════════════════════════════
 
-# ── Poster selection ──────────────────────────────────────────
-NUM_POSTERS   = _int("NUM_POSTERS",    4)   # 1–10
-UPCOMING_DAYS = _int("UPCOMING_DAYS", 180)
+DEFAULT_CONFIG = {
+    # Poster selection
+    "NUM_POSTERS":             4,
+    "UPCOMING_DAYS":           180,
+    # Poster appearance
+    "POSTER_WIDTH":            185,
+    "PADDING":                 28,
+    "ROW_GAP":                 24,
+    "VERTICAL_POS":            0.52,
+    "CORNER_RADIUS":           10,
+    # Drop shadow
+    "ADD_SHADOW":              True,
+    "SHADOW_OFFSET_X":         7,
+    "SHADOW_OFFSET_Y":         9,
+    "SHADOW_BLUR":             9,
+    "SHADOW_OPACITY":          175,
+    # Float animation
+    "FLOAT_AMPLITUDE":         14.0,
+    "FLOAT_SPEED":             0.55,
+    # Timing
+    "START_TIME":              2.0,
+    "POSTER_DURATION":         8.0,
+    "FADE_DURATION":           0.75,
+    # Font
+    "FONT":                    "Poppins-Bold",
+    # Release date label
+    "SHOW_RELEASE_DATE":       True,
+    "RELEASE_DATE_COLOR":      "#FFFFFF",
+    "RELEASE_DATE_SIZE":       15,
+    "RELEASE_DATE_SHADOW":     True,
+    "RELEASE_DATE_BG_COLOR":   "#000000",
+    "RELEASE_DATE_BG_OPACITY": 170,
+    # Top message
+    "TOP_MESSAGE_SHOW":        False,
+    "TOP_MESSAGE":             "",
+    "TOP_MESSAGE_ADD_DATE":    False,
+    "TOP_MESSAGE_COLOR":       "white",
+    "TOP_MESSAGE_SIZE":        15,
+    "TOP_MESSAGE_SHADOW":      False,
+    "TOP_MESSAGE_BG_COLOR":    "#000000",
+    "TOP_MESSAGE_BG_OPACITY":  170,
+    # Bottom message
+    "BOTTOM_MESSAGE_SHOW":     False,
+    "BOTTOM_MESSAGE":          "",
+    "BOTTOM_MESSAGE_ADD_DATE": True,
+    "BOTTOM_MESSAGE_COLOR":    "white",
+    "BOTTOM_MESSAGE_SIZE":     15,
+    "BOTTOM_MESSAGE_SHADOW":   False,
+    "BOTTOM_MESSAGE_BG_COLOR": "#000000",
+    "BOTTOM_MESSAGE_BG_OPACITY": 170,
+}
 
-# ── Poster appearance ─────────────────────────────────────────
-POSTER_WIDTH  = _int("POSTER_WIDTH",   185)
-PADDING       = _int("PADDING",         28)
-ROW_GAP       = _int("ROW_GAP",         24)   # pixels between rows (2-row layout)
-VERTICAL_POS  = _float("VERTICAL_POS",  0.52)
-CORNER_RADIUS = _int("CORNER_RADIUS",   10)
+# Module-level dict populated at the start of each job
+CFG: dict = {}
 
-# ── Drop shadow ───────────────────────────────────────────────
-ADD_SHADOW      = _bool("ADD_SHADOW", True)
-SHADOW_OFFSET_X = _int("SHADOW_OFFSET_X", 7)
-SHADOW_OFFSET_Y = _int("SHADOW_OFFSET_Y", 9)
-SHADOW_BLUR     = _int("SHADOW_BLUR",     9)
-SHADOW_OPACITY  = _int("SHADOW_OPACITY", 175)
 
-# ── Float animation ───────────────────────────────────────────
-FLOAT_AMPLITUDE = _float("FLOAT_AMPLITUDE", 14.0)
-FLOAT_SPEED     = _float("FLOAT_SPEED",      0.55)
+def load_job_config(yaml_settings: dict):
+    """Reset CFG to defaults, then apply yaml overrides with type coercion."""
+    global CFG
+    CFG = dict(DEFAULT_CONFIG)
+    for key, raw in yaml_settings.items():
+        if key not in DEFAULT_CONFIG:
+            continue
+        default = DEFAULT_CONFIG[key]
+        val     = str(raw).strip()
+        if isinstance(default, bool):
+            CFG[key] = val.lower() in ("1", "true", "yes")
+        elif isinstance(default, int):
+            try:    CFG[key] = int(val)
+            except: pass
+        elif isinstance(default, float):
+            try:    CFG[key] = float(val)
+            except: pass
+        else:
+            CFG[key] = val
 
-# ── Output encoding ───────────────────────────────────────────
-VIDEO_CRF    = os.getenv("VIDEO_CRF",    "18")
-VIDEO_PRESET = os.getenv("VIDEO_PRESET", "fast")
-CPU_THREADS  = _int("CPU_THREADS", 2)
 
-# ── Font ─────────────────────────────────────────────────────
-FONT = os.getenv("FONT", "Poppins-Bold")
+# ══════════════════════════════════════════════════════════════
+#  YAML PARSING
+# ══════════════════════════════════════════════════════════════
 
-# ── Release date label ────────────────────────────────────────
-SHOW_RELEASE_DATE      = _bool("SHOW_RELEASE_DATE",   True)
-RELEASE_DATE_COLOR     = os.getenv("RELEASE_DATE_COLOR",     "#FFFFFF")
-RELEASE_DATE_SIZE      = _int("RELEASE_DATE_SIZE",    15)
-RELEASE_DATE_SHADOW    = _bool("RELEASE_DATE_SHADOW",  True)
-RELEASE_DATE_BG_COLOR  = os.getenv("RELEASE_DATE_BG_COLOR",  "#000000")
-RELEASE_DATE_BG_OPACITY= _int("RELEASE_DATE_BG_OPACITY", 170)
+def parse_yaml(yaml_path: Path) -> tuple:
+    """
+    Parse a job yaml file.
+    Returns (source_type, output_name, settings_dict)
+      source_type : 'movie' | 'tv'
+      output_name : value of the 'output=' entry (or stem of yaml filename)
+      settings    : dict of KEY → string value for all other entries
+    """
+    with open(yaml_path) as f:
+        data = _yaml.safe_load(f)
 
-# ── Top message ───────────────────────────────────────────────
-TOP_MESSAGE_SHOW       = _bool("TOP_MESSAGE_SHOW", False)
-TOP_MESSAGE            = os.getenv("TOP_MESSAGE", "")
-TOP_MESSAGE_ADD_DATE   = _bool("TOP_MESSAGE_ADD_DATE", False)
-TOP_MESSAGE_COLOR      = os.getenv("TOP_MESSAGE_COLOR",      "white")
-TOP_MESSAGE_SIZE       = _int("TOP_MESSAGE_SIZE", 15)
-TOP_MESSAGE_SHADOW     = _bool("TOP_MESSAGE_SHADOW", False)
-TOP_MESSAGE_BG_COLOR   = os.getenv("TOP_MESSAGE_BG_COLOR",   "#000000")
-TOP_MESSAGE_BG_OPACITY = _int("TOP_MESSAGE_BG_OPACITY", 170)
+    source_type = None
+    items       = None
+    for key in ("movie", "tv"):
+        if key in data:
+            source_type = key
+            items       = data[key] or []
+            break
 
-# ── Bottom message ────────────────────────────────────────────
-BOTTOM_MESSAGE_SHOW       = _bool("BOTTOM_MESSAGE_SHOW", False)
-BOTTOM_MESSAGE            = os.getenv("BOTTOM_MESSAGE", "")
-BOTTOM_MESSAGE_ADD_DATE   = _bool("BOTTOM_MESSAGE_ADD_DATE", True)
-BOTTOM_MESSAGE_COLOR      = os.getenv("BOTTOM_MESSAGE_COLOR",      "white")
-BOTTOM_MESSAGE_SIZE       = _int("BOTTOM_MESSAGE_SIZE", 15)
-BOTTOM_MESSAGE_SHADOW     = _bool("BOTTOM_MESSAGE_SHADOW", False)
-BOTTOM_MESSAGE_BG_COLOR   = os.getenv("BOTTOM_MESSAGE_BG_COLOR",   "#000000")
-BOTTOM_MESSAGE_BG_OPACITY = _int("BOTTOM_MESSAGE_BG_OPACITY", 170)
+    if source_type is None:
+        raise ValueError(f"{yaml_path.name}: top-level key must be 'movie:' or 'tv:'")
+
+    output_name = yaml_path.stem   # fallback if output= is missing
+    settings    = {}
+
+    for item in items:
+        raw = str(item).strip()
+        if "=" not in raw:
+            continue
+        key, val = raw.split("=", 1)
+        key = key.strip()
+        val = val.strip()
+        if key == "output":
+            output_name = val
+        else:
+            settings[key] = val
+
+    return source_type, output_name, settings
+
+
+# ══════════════════════════════════════════════════════════════
+#  JOB DISCOVERY
+# ══════════════════════════════════════════════════════════════
+
+def find_jobs(input_dir: str) -> list:
+    """
+    Scan input_dir for video files. For each, look for a same-name .yaml.
+    Returns list of (video_path, yaml_path) tuples, sorted by filename.
+    """
+    jobs = []
+    for video_file in sorted(Path(input_dir).iterdir()):
+        if video_file.suffix.lower() not in VIDEO_EXTENSIONS:
+            continue
+        yaml_file = video_file.with_suffix(".yaml")
+        if not yaml_file.exists():
+            print(f"  ⚠  No matching yaml for {video_file.name} — skipping")
+            continue
+        jobs.append((video_file, yaml_file))
+    return jobs
 
 
 # ══════════════════════════════════════════════════════════════
 #  RADARR API
 # ══════════════════════════════════════════════════════════════
 
-def get_upcoming_movie_entries(n: int) -> list:
+def get_upcoming_movies(n: int) -> list:
+    """Return up to n upcoming Radarr movies with poster art."""
     if not RADARR_API_KEY:
         print("ERROR: RADARR_API_KEY is not set.")
         sys.exit(1)
@@ -132,7 +216,7 @@ def get_upcoming_movie_entries(n: int) -> list:
         resp = requests.get(f"{RADARR_URL}/api/v3/movie", headers=headers, timeout=15)
         resp.raise_for_status()
     except requests.RequestException as e:
-        print(f"ERROR: Could not connect to Radarr at {RADARR_URL}\n  {e}")
+        print(f"ERROR: Radarr unreachable at {RADARR_URL}\n  {e}")
         sys.exit(1)
 
     now      = datetime.now(timezone.utc)
@@ -145,35 +229,109 @@ def get_upcoming_movie_entries(n: int) -> list:
                 try:
                     rd = datetime.fromisoformat(raw.replace("Z", "+00:00"))
                     if rd > now:
-                        upcoming.append({"movie": m, "release": rd})
+                        upcoming.append({
+                            "title":   m["title"],
+                            "release": rd,
+                            "images":  m.get("images", []),
+                            "type":    "movie",
+                        })
                         break
                 except (ValueError, TypeError):
                     continue
 
     with_poster = [
         u for u in upcoming
-        if any(img.get("coverType") == "poster" for img in u["movie"].get("images", []))
+        if any(img.get("coverType") == "poster" for img in u["images"])
     ]
     with_poster.sort(key=lambda x: x["release"])
-
     pool = with_poster[: max(n * 3, 20)]
     random.shuffle(pool)
     return pool[:n]
 
 
-def download_poster(movie: dict, dest_path: str) -> bool:
+# ══════════════════════════════════════════════════════════════
+#  SONARR API
+# ══════════════════════════════════════════════════════════════
+
+def get_upcoming_tv(n: int) -> list:
+    """
+    Return up to n upcoming TV series (with poster art) that have episodes
+    airing within UPCOMING_DAYS. Date label is the next episode air date.
+    """
+    if not SONARR_API_KEY:
+        print("ERROR: SONARR_API_KEY is not set.")
+        sys.exit(1)
+
+    headers = {"X-Api-Key": SONARR_API_KEY}
+    now     = datetime.now(timezone.utc)
+    end     = now + timedelta(days=CFG["UPCOMING_DAYS"])
+
+    # Fetch calendar for the window
+    params  = {
+        "start":         now.strftime("%Y-%m-%d"),
+        "end":           end.strftime("%Y-%m-%d"),
+        "includeSeries": "true",
+    }
+    try:
+        resp = requests.get(f"{SONARR_URL}/api/v3/calendar",
+                            headers=headers, params=params, timeout=15)
+        resp.raise_for_status()
+    except requests.RequestException as e:
+        print(f"ERROR: Sonarr unreachable at {SONARR_URL}\n  {e}")
+        sys.exit(1)
+
+    # Collect unique series keyed by seriesId, tracking earliest air date
+    series_map: dict = {}
+    for ep in resp.json():
+        series = ep.get("series", {})
+        sid    = series.get("id")
+        if not sid:
+            continue
+        try:
+            air = datetime.fromisoformat(ep["airDateUtc"].replace("Z", "+00:00"))
+        except (KeyError, ValueError, TypeError):
+            continue
+
+        if sid not in series_map or air < series_map[sid]["release"]:
+            series_map[sid] = {
+                "title":   series.get("title", "Unknown"),
+                "release": air,
+                "images":  series.get("images", []),
+                "type":    "tv",
+            }
+
+    with_poster = [
+        v for v in series_map.values()
+        if any(img.get("coverType") == "poster" for img in v["images"])
+    ]
+    with_poster.sort(key=lambda x: x["release"])
+    pool = with_poster[: max(n * 3, 20)]
+    random.shuffle(pool)
+    return pool[:n]
+
+
+# ══════════════════════════════════════════════════════════════
+#  POSTER DOWNLOAD
+# ══════════════════════════════════════════════════════════════
+
+def download_poster(entry: dict, dest_path: str, source_type: str) -> bool:
+    """Download the poster image for a Radarr or Sonarr entry."""
     poster_url = None
-    for img in movie.get("images", []):
+    for img in entry.get("images", []):
         if img.get("coverType") == "poster":
             poster_url = img.get("remoteUrl") or img.get("url")
             break
 
     if not poster_url:
         return False
-    if poster_url.startswith("/"):
-        poster_url = f"{RADARR_URL}{poster_url}"
 
-    headers = {"X-Api-Key": RADARR_API_KEY}
+    base_url = RADARR_URL if source_type == "movie" else SONARR_URL
+    api_key  = RADARR_API_KEY if source_type == "movie" else SONARR_API_KEY
+
+    if poster_url.startswith("/"):
+        poster_url = f"{base_url}{poster_url}"
+
+    headers = {"X-Api-Key": api_key}
     try:
         r = requests.get(poster_url, headers=headers, timeout=20, stream=True)
         r.raise_for_status()
@@ -182,7 +340,7 @@ def download_poster(movie: dict, dest_path: str) -> bool:
                 f.write(chunk)
         return True
     except requests.RequestException as e:
-        print(f"  ⚠  Download failed for {movie.get('title', '?')}: {e}")
+        print(f"  ⚠  Download failed for {entry.get('title', '?')}: {e}")
         return False
 
 
@@ -191,60 +349,60 @@ def download_poster(movie: dict, dest_path: str) -> bool:
 # ══════════════════════════════════════════════════════════════
 
 FONT_MAP = {
-    # ── Poppins (Google Fonts — downloaded in Dockerfile) ─────
     "Poppins-Bold":             "/usr/share/fonts/truetype/google-fonts/Poppins-Bold.ttf",
     "Poppins-Medium":           "/usr/share/fonts/truetype/google-fonts/Poppins-Medium.ttf",
     "Poppins-Regular":          "/usr/share/fonts/truetype/google-fonts/Poppins-Regular.ttf",
-    # ── DejaVu (fonts-dejavu-core) ────────────────────────────
     "DejaVuSans-Bold":          "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
     "DejaVuSans":               "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
     "DejaVuSerif-Bold":         "/usr/share/fonts/truetype/dejavu/DejaVuSerif-Bold.ttf",
     "DejaVuSerif":              "/usr/share/fonts/truetype/dejavu/DejaVuSerif.ttf",
     "DejaVuSansMono-Bold":      "/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf",
     "DejaVuSansCondensed-Bold": "/usr/share/fonts/truetype/dejavu/DejaVuSansCondensed-Bold.ttf",
-    # ── Liberation (fonts-liberation) ─────────────────────────
     "LiberationSans-Bold":      "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
     "LiberationSans":           "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
     "LiberationSerif-Bold":     "/usr/share/fonts/truetype/liberation/LiberationSerif-Bold.ttf",
     "LiberationMono-Bold":      "/usr/share/fonts/truetype/liberation/LiberationMono-Bold.ttf",
-    # ── FreeFonts (fonts-freefont-ttf) ────────────────────────
     "FreeSansBold":             "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf",
     "FreeSerifBold":            "/usr/share/fonts/truetype/freefont/FreeSerifBold.ttf",
-    # ── Crosextra (fonts-crosextra-*) ─────────────────────────
     "Carlito-Bold":             "/usr/share/fonts/truetype/crosextra/Carlito-Bold.ttf",
     "Caladea-Bold":             "/usr/share/fonts/truetype/crosextra/Caladea-Bold.ttf",
-    # ── macOS fallbacks ───────────────────────────────────────
     "Helvetica":                "/System/Library/Fonts/Helvetica.ttc",
     "HelveticaNeue":            "/System/Library/Fonts/HelveticaNeue.ttc",
 }
 
-def load_font(size: int) -> ImageFont.ImageFont:
-    if FONT in FONT_MAP:
-        path = FONT_MAP[FONT]
-        if Path(path).exists():
-            try:
-                f = ImageFont.truetype(path, size)
-                print(f"  [font] {FONT}  size={size}")
-                return f
-            except Exception as e:
-                print(f"  [font] {FONT} failed ({e}), trying fallbacks...")
-        else:
-            print(f"  [font] {FONT} not found, trying fallbacks...")
+_font_cache: dict = {}
 
-    for name, path in FONT_MAP.items():
-        if Path(path).exists():
+def load_font(size: int) -> ImageFont.ImageFont:
+    """Load the font named by CFG['FONT'], with fallback chain. Caches by (name, size)."""
+    name = CFG.get("FONT", "Poppins-Bold")
+    key  = (name, size)
+    if key in _font_cache:
+        return _font_cache[key]
+
+    if name in FONT_MAP and Path(FONT_MAP[name]).exists():
+        try:
+            f = ImageFont.truetype(FONT_MAP[name], size)
+            print(f"  [font] {name}  size={size}")
+            _font_cache[key] = f
+            return f
+        except Exception as e:
+            print(f"  [font] {name} failed ({e}), trying fallbacks...")
+
+    for fname, fpath in FONT_MAP.items():
+        if Path(fpath).exists():
             try:
-                f = ImageFont.truetype(path, size)
-                print(f"  [font] {name} (fallback)  size={size}")
+                f = ImageFont.truetype(fpath, size)
+                print(f"  [font] {fname} (fallback)  size={size}")
+                _font_cache[key] = f
                 return f
             except Exception:
                 continue
 
     print(f"  [font] PIL built-in fallback  size={size}")
-    try:
-        return ImageFont.load_default(size=size)
-    except TypeError:
-        return ImageFont.load_default()
+    try:    f = ImageFont.load_default(size=size)
+    except: f = ImageFont.load_default()
+    _font_cache[key] = f
+    return f
 
 
 def _parse_color(color_str: str) -> tuple:
@@ -255,10 +413,7 @@ def _parse_color(color_str: str) -> tuple:
 
 
 def wrap_text(text: str, font: ImageFont.ImageFont, max_px: int) -> list:
-    """
-    Word-wrap text so no line exceeds max_px pixels wide.
-    Returns a list of line strings.
-    """
+    """Word-wrap text so no line exceeds max_px. Returns list of line strings."""
     words   = text.split()
     lines   = []
     current = ""
@@ -273,10 +428,9 @@ def wrap_text(text: str, font: ImageFont.ImageFont, max_px: int) -> list:
         else:
             if current:
                 lines.append(current)
-            current = word   # start new line; single long word always gets its own line
+            current = word
     if current:
         lines.append(current)
-
     return lines or [text]
 
 
@@ -284,25 +438,21 @@ def make_text_image(text: str, font_size: int, color: str, shadow: bool,
                     bg_color: str = "#000000", bg_opacity: int = 170,
                     max_width: int = None) -> Image.Image:
     """
-    Render text as a PIL RGBA image with an optional rounded pill background.
-    If max_width (pixels) is given, long text is word-wrapped to fit.
-    bg_opacity=0 disables the pill background entirely.
+    Render text into a PIL RGBA image with an optional rounded pill background.
+    Long text is word-wrapped if max_width is given. bg_opacity=0 = no background.
     """
     font       = load_font(font_size)
     text_color = _parse_color(color)
     bg_rgb     = _parse_color(bg_color)
+    h_pad      = 12
+    v_pad      = 6
+    line_gap   = 4
 
-    h_pad    = 12
-    v_pad    = 6
-    line_gap = 4   # extra pixels between wrapped lines
-
-    # ── Wrap if needed ────────────────────────────────────────
     if max_width and max_width > h_pad * 2:
         lines = wrap_text(text, font, max_width - h_pad * 2)
     else:
         lines = [text]
 
-    # ── Measure every line ────────────────────────────────────
     scratch = Image.new("RGBA", (8000, font_size * 6), (0, 0, 0, 0))
     d       = ImageDraw.Draw(scratch)
     bboxes  = [d.textbbox((0, 0), line, font=font) for line in lines]
@@ -313,7 +463,6 @@ def make_text_image(text: str, font_size: int, color: str, shadow: bool,
     total_text_h = sum(lheights) + line_gap * (len(lines) - 1)
     img_h        = total_text_h + v_pad * 2
 
-    # ── Draw ──────────────────────────────────────────────────
     img  = Image.new("RGBA", (img_w, img_h), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
 
@@ -323,7 +472,6 @@ def make_text_image(text: str, font_size: int, color: str, shadow: bool,
 
     y_cursor = v_pad
     for line, bbox, lw, lh in zip(lines, bboxes, lwidths, lheights):
-        # Centre each line horizontally within the pill
         tx = (img_w - lw) // 2 - bbox[0]
         ty = y_cursor - bbox[1]
         if shadow:
@@ -331,8 +479,7 @@ def make_text_image(text: str, font_size: int, color: str, shadow: bool,
         draw.text((tx, ty), line, font=font, fill=(*text_color, 255))
         y_cursor += lh + line_gap
 
-    n_lines = len(lines)
-    print(f"  [text] '{text}'  {n_lines} line(s)  {img_w}x{img_h}px")
+    print(f"  [text] '{text}'  {len(lines)} line(s)  {img_w}x{img_h}px")
     return img
 
 
@@ -340,10 +487,11 @@ def make_text_image(text: str, font_size: int, color: str, shadow: bool,
 #  POSTER IMAGE PROCESSING
 # ══════════════════════════════════════════════════════════════
 
-def apply_rounded_corners(img: Image.Image, radius: int) -> Image.Image:
-    img  = img.convert("RGBA")
-    mask = Image.new("L", img.size, 0)
-    draw = ImageDraw.Draw(mask)
+def apply_rounded_corners(img: Image.Image) -> Image.Image:
+    radius = CFG["CORNER_RADIUS"]
+    img    = img.convert("RGBA")
+    mask   = Image.new("L", img.size, 0)
+    draw   = ImageDraw.Draw(mask)
     draw.rounded_rectangle([0, 0, img.width - 1, img.height - 1],
                             radius=radius, fill=255)
     img.putalpha(mask)
@@ -351,27 +499,29 @@ def apply_rounded_corners(img: Image.Image, radius: int) -> Image.Image:
 
 
 def add_drop_shadow(img: Image.Image) -> Image.Image:
-    ox, oy = SHADOW_OFFSET_X, SHADOW_OFFSET_Y
-    extra  = SHADOW_BLUR * 2
+    ox, oy = CFG["SHADOW_OFFSET_X"], CFG["SHADOW_OFFSET_Y"]
+    blur   = CFG["SHADOW_BLUR"]
+    extra  = blur * 2
     canvas = Image.new("RGBA",
                        (img.width + abs(ox) + extra, img.height + abs(oy) + extra),
                        (0, 0, 0, 0))
-    black = Image.new("RGBA", img.size, (0, 0, 0, SHADOW_OPACITY))
-    black.putalpha(img.split()[3].point(lambda p: p * SHADOW_OPACITY // 255))
+    black = Image.new("RGBA", img.size, (0, 0, 0, CFG["SHADOW_OPACITY"]))
+    black.putalpha(img.split()[3].point(lambda p: p * CFG["SHADOW_OPACITY"] // 255))
     sx, sy = extra // 2 + max(ox, 0), extra // 2 + max(oy, 0)
     canvas.paste(black, (sx, sy))
-    canvas = canvas.filter(ImageFilter.GaussianBlur(radius=SHADOW_BLUR))
+    canvas = canvas.filter(ImageFilter.GaussianBlur(radius=blur))
     px, py = extra // 2 + max(-ox, 0), extra // 2 + max(-oy, 0)
     canvas.paste(img, (px, py), img)
     return canvas
 
 
-def prepare_poster(image_path: str, target_width: int) -> Image.Image:
+def prepare_poster(image_path: str) -> Image.Image:
+    w      = CFG["POSTER_WIDTH"]
     img    = Image.open(image_path).convert("RGBA")
     aspect = img.height / img.width
-    img    = img.resize((target_width, int(target_width * aspect)), Image.LANCZOS)
-    img    = apply_rounded_corners(img, CORNER_RADIUS)
-    if ADD_SHADOW:
+    img    = img.resize((w, int(w * aspect)), Image.LANCZOS)
+    img    = apply_rounded_corners(img)
+    if CFG["ADD_SHADOW"]:
         img = add_drop_shadow(img)
     return img
 
@@ -380,30 +530,28 @@ def prepare_poster(image_path: str, target_width: int) -> Image.Image:
 #  CLIP FACTORIES
 # ══════════════════════════════════════════════════════════════
 
-def _rgba_to_clip(pil_img: Image.Image,
-                  pos_x: int,
-                  pos_y,
-                  start: float,
-                  duration: float) -> ImageClip:
+def _rgba_to_clip(pil_img: Image.Image, pos_x: int, pos_y,
+                  start: float, duration: float) -> ImageClip:
     arr   = np.array(pil_img.convert("RGBA"))
     rgb   = arr[:, :, :3]
     alpha = arr[:, :, 3] / 255.0
     clip  = ImageClip(rgb, ismask=False)
 
     is_static = isinstance(pos_y, (int, float))
+    fade      = CFG["FADE_DURATION"]
 
     def position(t):
         y = pos_y if is_static else pos_y(t)
         return (pos_x, int(y))
 
     def mask_frame(t):
-        if t < FADE_DURATION:
-            fade = t / FADE_DURATION
-        elif t > duration - FADE_DURATION:
-            fade = max(0.0, (duration - t) / FADE_DURATION)
+        if t < fade:
+            f = t / fade
+        elif t > duration - fade:
+            f = max(0.0, (duration - t) / fade)
         else:
-            fade = 1.0
-        return alpha * fade
+            f = 1.0
+        return alpha * f
 
     mask = VideoClip(mask_frame, ismask=True, duration=duration)
     return (
@@ -416,68 +564,71 @@ def _rgba_to_clip(pil_img: Image.Image,
 
 
 def make_poster_clip(pil_img, pos_x, base_y, float_phase):
+    amp   = CFG["FLOAT_AMPLITUDE"]
+    speed = CFG["FLOAT_SPEED"]
+    start = CFG["START_TIME"]
+    dur   = CFG["POSTER_DURATION"]
+
     def y_fn(t):
-        return base_y + FLOAT_AMPLITUDE * math.sin(
-            2 * math.pi * FLOAT_SPEED * t + float_phase)
-    return _rgba_to_clip(pil_img, pos_x, y_fn, START_TIME, POSTER_DURATION)
+        return base_y + amp * math.sin(2 * math.pi * speed * t + float_phase)
+
+    return _rgba_to_clip(pil_img, pos_x, y_fn, start, dur)
 
 
 def make_date_clip(date_text, center_x, poster_bottom_y, float_phase):
-    img   = make_text_image(date_text, RELEASE_DATE_SIZE,
-                            RELEASE_DATE_COLOR, RELEASE_DATE_SHADOW,
-                            RELEASE_DATE_BG_COLOR, RELEASE_DATE_BG_OPACITY)
+    img   = make_text_image(
+                date_text,
+                CFG["RELEASE_DATE_SIZE"],
+                CFG["RELEASE_DATE_COLOR"],
+                CFG["RELEASE_DATE_SHADOW"],
+                CFG["RELEASE_DATE_BG_COLOR"],
+                CFG["RELEASE_DATE_BG_OPACITY"])
     pos_x = center_x - img.width // 2
+    amp   = CFG["FLOAT_AMPLITUDE"]
+    speed = CFG["FLOAT_SPEED"]
     gap   = 6
+    start = CFG["START_TIME"]
+    dur   = CFG["POSTER_DURATION"]
 
     def y_fn(t):
-        drift = FLOAT_AMPLITUDE * math.sin(2 * math.pi * FLOAT_SPEED * t + float_phase)
-        return poster_bottom_y + gap + drift
+        return poster_bottom_y + gap + amp * math.sin(
+            2 * math.pi * speed * t + float_phase)
 
-    return _rgba_to_clip(img, pos_x, y_fn, START_TIME, POSTER_DURATION)
+    return _rgba_to_clip(img, pos_x, y_fn, start, dur)
 
 
-def make_bottom_message_clip(message, vid_w, vid_h):
-    """Centered message 24px from the bottom; wraps if wider than 85% of video."""
-    img   = make_text_image(message, BOTTOM_MESSAGE_SIZE,
-                            BOTTOM_MESSAGE_COLOR, shadow=BOTTOM_MESSAGE_SHADOW,
-                            bg_color=BOTTOM_MESSAGE_BG_COLOR, bg_opacity=BOTTOM_MESSAGE_BG_OPACITY,
-                            max_width=int(vid_w * 0.85))
+def make_message_clip(message, vid_w, vid_h, cfg_prefix, pos_y):
+    """Generic message clip factory. pos_y is a pixel int (static)."""
+    img = make_text_image(
+            message,
+            CFG[f"{cfg_prefix}_SIZE"],
+            CFG[f"{cfg_prefix}_COLOR"],
+            CFG[f"{cfg_prefix}_SHADOW"],
+            CFG[f"{cfg_prefix}_BG_COLOR"],
+            CFG[f"{cfg_prefix}_BG_OPACITY"],
+            max_width=int(vid_w * 0.85))
     pos_x = (vid_w - img.width) // 2
-    pos_y = vid_h - img.height - 24
-    return _rgba_to_clip(img, pos_x, pos_y, START_TIME, POSTER_DURATION)
-
-
-def make_top_message_clip(message, vid_w, vid_h):
-    """Centered message 24px from the top; wraps if wider than 85% of video."""
-    img   = make_text_image(message, TOP_MESSAGE_SIZE,
-                            TOP_MESSAGE_COLOR, shadow=TOP_MESSAGE_SHADOW,
-                            bg_color=TOP_MESSAGE_BG_COLOR, bg_opacity=TOP_MESSAGE_BG_OPACITY,
-                            max_width=int(vid_w * 0.85))
-    pos_x = (vid_w - img.width) // 2
-    pos_y = 24
-    return _rgba_to_clip(img, pos_x, pos_y, START_TIME, POSTER_DURATION)
+    return _rgba_to_clip(img, pos_x, pos_y, CFG["START_TIME"], CFG["POSTER_DURATION"])
 
 
 # ══════════════════════════════════════════════════════════════
-#  ROW LAYOUT HELPER
+#  ROW LAYOUT
 # ══════════════════════════════════════════════════════════════
 
 def build_rows(poster_data: list) -> list:
     """
-    Split posters into 1 or 2 rows:
-      1–5  → 1 row
-      6    → 2 rows of 3/3
-      7    → 2 rows of 4/3
-      8    → 2 rows of 4/4
-      9    → 2 rows of 5/4
-      10   → 2 rows of 5/5
-    Returns a list of lists (each sub-list is one row).
+    1–5  → 1 row
+    6    → 3+3
+    7    → 4+3
+    8    → 4+4
+    9    → 5+4
+    10   → 5+5
     """
     n = len(poster_data)
     if n <= 5:
         return [poster_data]
-    row1_count = math.ceil(n / 2)
-    return [poster_data[:row1_count], poster_data[row1_count:]]
+    split = math.ceil(n / 2)
+    return [poster_data[:split], poster_data[split:]]
 
 
 # ══════════════════════════════════════════════════════════════
@@ -487,80 +638,86 @@ def build_rows(poster_data: list) -> list:
 def composite_video(poster_data: list, bg_path: str, out_path: str):
     Path(out_path).parent.mkdir(parents=True, exist_ok=True)
 
-    bg           = VideoFileClip(bg_path)
+    bg           = VideoFileClip(str(bg_path))
     vid_w, vid_h = bg.size
     n            = len(poster_data)
 
-    # ── Row layout ────────────────────────────────────────────
-    rows       = build_rows(poster_data)
-    n_rows     = len(rows)
-    row_max_h  = [max(d["img"].height for d in row) for row in rows]
-    total_h    = sum(row_max_h) + ROW_GAP * (n_rows - 1)
+    rows      = build_rows(poster_data)
+    n_rows    = len(rows)
+    row_max_h = [max(d["img"].height for d in row) for row in rows]
+    total_h   = sum(row_max_h) + CFG["ROW_GAP"] * (n_rows - 1)
 
-    # Centre the whole block vertically
-    block_top  = int(vid_h * VERTICAL_POS - total_h / 2)
-    block_top  = max(10, min(block_top, vid_h - total_h - 10))
+    block_top = int(vid_h * CFG["VERTICAL_POS"] - total_h / 2)
+    block_top = max(10, min(block_top, vid_h - total_h - 10))
 
-    # Float phases spread evenly across ALL posters regardless of row
     phases     = [(2 * math.pi * i) / n for i in range(n)]
-
     all_clips  = [bg]
     y_cursor   = block_top
     poster_idx = 0
 
     for row_num, row in enumerate(rows):
-        row_h   = row_max_h[row_num]
-        row_w   = sum(d["img"].width for d in row) + PADDING * (len(row) - 1)
-        x_start = (vid_w - row_w) // 2
-        x_cursor = x_start
+        row_h    = row_max_h[row_num]
+        row_w    = sum(d["img"].width for d in row) + CFG["PADDING"] * (len(row) - 1)
+        x_cursor = (vid_w - row_w) // 2
 
         for d in row:
             img   = d["img"]
             phase = phases[poster_idx]
             poster_idx += 1
-
-            # Vertically centre each poster within its row's max height
             base_y = y_cursor + (row_h - img.height) // 2
 
             all_clips.append(make_poster_clip(img, x_cursor, base_y, phase))
 
-            if SHOW_RELEASE_DATE and d["date"]:
-                center_x      = x_cursor + img.width // 2
-                poster_bottom = base_y + img.height
+            if CFG["SHOW_RELEASE_DATE"] and d.get("date"):
                 all_clips.append(
-                    make_date_clip(d["date"], center_x, poster_bottom, phase)
-                )
+                    make_date_clip(d["date"],
+                                   x_cursor + img.width // 2,
+                                   base_y + img.height,
+                                   phase))
+            x_cursor += img.width + CFG["PADDING"]
 
-            x_cursor += img.width + PADDING
+        y_cursor += row_h + CFG["ROW_GAP"]
 
-        y_cursor += row_h + ROW_GAP
-
-    # ── Bottom message ────────────────────────────────────────
-    if BOTTOM_MESSAGE_SHOW and (BOTTOM_MESSAGE or BOTTOM_MESSAGE_ADD_DATE):
-        msg = BOTTOM_MESSAGE
-        if BOTTOM_MESSAGE_ADD_DATE:
+    # Bottom message
+    if CFG["BOTTOM_MESSAGE_SHOW"] and (CFG["BOTTOM_MESSAGE"] or CFG["BOTTOM_MESSAGE_ADD_DATE"]):
+        msg = CFG["BOTTOM_MESSAGE"]
+        if CFG["BOTTOM_MESSAGE_ADD_DATE"]:
             now     = datetime.now()
             datestr = f"{now.strftime('%B')} {now.day}, {now.year}"
             msg     = f"{msg}  {datestr}".strip() if msg else datestr
         print(f"  [bottom msg] '{msg}'")
-        all_clips.append(make_bottom_message_clip(msg, vid_w, vid_h))
+        pos_y = vid_h - 24   # will be adjusted down by image height in clip factory
+        # compute actual pos_y after building the image
+        img_b = make_text_image(msg,
+                    CFG["BOTTOM_MESSAGE_SIZE"], CFG["BOTTOM_MESSAGE_COLOR"],
+                    CFG["BOTTOM_MESSAGE_SHADOW"], CFG["BOTTOM_MESSAGE_BG_COLOR"],
+                    CFG["BOTTOM_MESSAGE_BG_OPACITY"], max_width=int(vid_w * 0.85))
+        pos_x = (vid_w - img_b.width) // 2
+        pos_y = vid_h - img_b.height - 24
+        all_clips.append(_rgba_to_clip(img_b, pos_x, pos_y,
+                                       CFG["START_TIME"], CFG["POSTER_DURATION"]))
 
-    # ── Top message ───────────────────────────────────────────
-    if TOP_MESSAGE_SHOW and (TOP_MESSAGE or TOP_MESSAGE_ADD_DATE):
-        msg = TOP_MESSAGE
-        if TOP_MESSAGE_ADD_DATE:
+    # Top message
+    if CFG["TOP_MESSAGE_SHOW"] and (CFG["TOP_MESSAGE"] or CFG["TOP_MESSAGE_ADD_DATE"]):
+        msg = CFG["TOP_MESSAGE"]
+        if CFG["TOP_MESSAGE_ADD_DATE"]:
             now     = datetime.now()
             datestr = f"{now.strftime('%B')} {now.day}, {now.year}"
             msg     = f"{msg}  {datestr}".strip() if msg else datestr
         print(f"  [top msg] '{msg}'")
-        all_clips.append(make_top_message_clip(msg, vid_w, vid_h))
+        img_t = make_text_image(msg,
+                    CFG["TOP_MESSAGE_SIZE"], CFG["TOP_MESSAGE_COLOR"],
+                    CFG["TOP_MESSAGE_SHADOW"], CFG["TOP_MESSAGE_BG_COLOR"],
+                    CFG["TOP_MESSAGE_BG_OPACITY"], max_width=int(vid_w * 0.85))
+        pos_x = (vid_w - img_t.width) // 2
+        all_clips.append(_rgba_to_clip(img_t, pos_x, 24,
+                                       CFG["START_TIME"], CFG["POSTER_DURATION"]))
 
-    final = CompositeVideoClip(all_clips).set_duration(bg.duration)
-
+    final      = CompositeVideoClip(all_clips).set_duration(bg.duration)
     thread_str = str(CPU_THREADS) if CPU_THREADS > 0 else "0"
-    print(f"\nRendering → {out_path}  (threads: {thread_str})")
+    print(f"\n  Rendering → {out_path}  (threads: {thread_str})")
     final.write_videofile(
-        out_path,
+        str(out_path),
         codec         = "libx264",
         audio_codec   = "aac",
         fps           = bg.fps,
@@ -573,20 +730,68 @@ def composite_video(poster_data: list, bg_path: str, out_path: str):
 
 
 # ══════════════════════════════════════════════════════════════
-#  CLI OVERRIDES
+#  JOB RUNNER
 # ══════════════════════════════════════════════════════════════
 
-def parse_args():
-    p = argparse.ArgumentParser(
-        description="Overlay floating Radarr posters onto a background video."
-    )
-    p.add_argument("--input",    help="Background video path")
-    p.add_argument("--output",   help="Output video path")
-    p.add_argument("--start",    type=float, help="Start time in seconds")
-    p.add_argument("--duration", type=float, help="Poster visible duration (max 10)")
-    p.add_argument("--count",    type=int,   help="Number of posters (1–10)")
-    p.add_argument("--width",    type=int,   help="Poster width in pixels")
-    return p.parse_args()
+def run_job(video_path: Path, yaml_path: Path):
+    print(f"\n{'═' * 54}")
+    print(f"  Job: {yaml_path.name}")
+
+    source_type, output_name, yaml_settings = parse_yaml(yaml_path)
+    load_job_config(yaml_settings)
+
+    out_path  = Path(OUTPUT_DIR) / f"{output_name}.mp4"
+    n         = max(1, min(CFG["NUM_POSTERS"], 10))
+    rows_prev = build_rows([None] * n)
+    layout    = " + ".join(str(len(r)) for r in rows_prev)
+
+    print(f"  Source:    {video_path.name}")
+    print(f"  Type:      {source_type.upper()}")
+    print(f"  Output:    {out_path.name}")
+    print(f"  Posters:   {n}  layout={layout}  start={CFG['START_TIME']}s  show={CFG['POSTER_DURATION']}s")
+    print(f"  Font:      {CFG['FONT']}")
+    print(f"  Date: {'on' if CFG['SHOW_RELEASE_DATE'] else 'off'}"
+          f"   Bottom: {'on' if CFG['BOTTOM_MESSAGE_SHOW'] else 'off'}"
+          f"   Top: {'on' if CFG['TOP_MESSAGE_SHOW'] else 'off'}")
+    print(f"{'─' * 54}")
+
+    # Fetch entries
+    print(f"\n  Fetching {n} upcoming {'movies' if source_type == 'movie' else 'TV shows'}...")
+    entries = get_upcoming_movies(n) if source_type == "movie" else get_upcoming_tv(n)
+
+    if not entries:
+        print(f"  No upcoming entries found — skipping {output_name}")
+        return
+
+    print(f"  Selected {len(entries)}:")
+    for e in entries:
+        rd = e["release"]
+        print(f"    • {e['title']}  ({rd.strftime('%B')} {rd.day}, {rd.year})")
+
+    # Download and prepare posters
+    poster_data = []
+    with tempfile.TemporaryDirectory() as tmpdir:
+        for i, e in enumerate(entries):
+            path = os.path.join(tmpdir, f"poster_{i}.jpg")
+            print(f"  ↓  {e['title']}")
+            if download_poster(e, path, source_type):
+                rd       = e["release"]
+                date_str = (f"{rd.strftime('%B')} {rd.day}, {rd.year}"
+                            if CFG["SHOW_RELEASE_DATE"] else "")
+                poster_data.append({
+                    "img":  prepare_poster(path),
+                    "date": date_str,
+                })
+            else:
+                print(f"     (skipped — poster unavailable)")
+
+        if not poster_data:
+            print(f"  No posters downloaded — skipping {output_name}")
+            return
+
+        composite_video(poster_data, video_path, out_path)
+
+    print(f"\n  ✅  {output_name}.mp4  saved to {OUTPUT_DIR}")
 
 
 # ══════════════════════════════════════════════════════════════
@@ -594,80 +799,40 @@ def parse_args():
 # ══════════════════════════════════════════════════════════════
 
 def main():
-    args = parse_args()
-
-    global INPUT_VIDEO, OUTPUT_VIDEO, START_TIME, POSTER_DURATION, NUM_POSTERS, POSTER_WIDTH
-    if args.input:                INPUT_VIDEO     = args.input
-    if args.output:               OUTPUT_VIDEO    = args.output
-    if args.start    is not None: START_TIME      = args.start
-    if args.duration is not None: POSTER_DURATION = min(args.duration, 10.0)
-    if args.count    is not None: NUM_POSTERS     = max(1, min(args.count, 10))
-    if args.width    is not None: POSTER_WIDTH    = args.width
-
-    if POSTER_DURATION > 10:
-        print("⚠  POSTER_DURATION capped at 10 seconds.")
-        POSTER_DURATION = 10.0
-
-    if not Path(INPUT_VIDEO).exists():
-        print(f"ERROR: Input video not found: {INPUT_VIDEO}")
-        sys.exit(1)
-
-    rows_preview = build_rows([None] * NUM_POSTERS)
-    layout_str   = " + ".join(str(len(r)) for r in rows_preview)
-
-    print("─" * 54)
+    print("═" * 54)
     print(f"  floating-posters  v{VERSION}")
-    print(f"  Radarr:    {RADARR_URL}")
-    print(f"  Input:     {INPUT_VIDEO}")
-    print(f"  Output:    {OUTPUT_VIDEO}")
-    print(f"  Posters:   {NUM_POSTERS}  layout={layout_str}  start={START_TIME}s  show={POSTER_DURATION}s")
-    print(f"  Font:      {FONT}")
-    print(f"  Date: {'on' if SHOW_RELEASE_DATE else 'off'}"
-          f"   Bottom: {'on' if BOTTOM_MESSAGE_SHOW else 'off'}"
-          f"   Top: {'on' if TOP_MESSAGE_SHOW else 'off'}"
-          f"   Threads: {CPU_THREADS}")
-    print("─" * 54)
+    print(f"  Input dir:   {INPUT_DIR}")
+    print(f"  Output dir:  {OUTPUT_DIR}")
+    print(f"  Radarr:      {RADARR_URL}")
+    print(f"  Sonarr:      {SONARR_URL}")
+    print(f"  Threads:     {CPU_THREADS}   CRF: {VIDEO_CRF}   Preset: {VIDEO_PRESET}")
+    print("═" * 54)
 
-    # 1 ── Fetch upcoming movies
-    print(f"\nFetching {NUM_POSTERS} upcoming movies from Radarr...")
-    entries = get_upcoming_movie_entries(NUM_POSTERS)
+    # Ensure output dir exists
+    Path(OUTPUT_DIR).mkdir(parents=True, exist_ok=True)
 
-    if not entries:
-        print("No upcoming movies with posters found in Radarr.")
+    jobs = find_jobs(INPUT_DIR)
+    if not jobs:
+        print(f"\nNo video+yaml pairs found in {INPUT_DIR}")
+        print("  Expected: <name>.mov (or .mp4/.mpg) + <name>.yaml side by side")
         sys.exit(1)
 
-    print(f"Selected {len(entries)} movies:")
-    for e in entries:
-        m  = e["movie"]
-        rd = e["release"]
-        print(f"  • {m['title']}  ({rd.strftime('%B')} {rd.day}, {rd.year})")
+    print(f"\nFound {len(jobs)} job(s):")
+    for v, y in jobs:
+        print(f"  {v.name}  +  {y.name}")
 
-    # 2 ── Download and prepare posters
-    poster_data = []
-    with tempfile.TemporaryDirectory() as tmpdir:
-        for i, e in enumerate(entries):
-            m    = e["movie"]
-            path = os.path.join(tmpdir, f"poster_{i}.jpg")
-            print(f"  ↓  {m['title']}")
-            if download_poster(m, path):
-                rd       = e["release"]
-                date_str = (f"{rd.strftime('%B')} {rd.day}, {rd.year}"
-                            if SHOW_RELEASE_DATE else "")
-                poster_data.append({
-                    "img":  prepare_poster(path, POSTER_WIDTH),
-                    "date": date_str,
-                })
-            else:
-                print(f"     (skipped — no poster available)")
+    for video_path, yaml_path in jobs:
+        try:
+            run_job(video_path, yaml_path)
+        except Exception as e:
+            print(f"\n  ❌  {yaml_path.name} failed: {e}")
+            import traceback
+            traceback.print_exc()
+            print("  Continuing with next job...\n")
 
-        if not poster_data:
-            print("\nERROR: No posters downloaded successfully.")
-            sys.exit(1)
-
-        # 3 ── Composite
-        composite_video(poster_data, INPUT_VIDEO, OUTPUT_VIDEO)
-
-    print(f"\n✅  Done!  Output saved to:\n   {OUTPUT_VIDEO}")
+    print(f"\n{'═' * 54}")
+    print(f"  All jobs complete.")
+    print(f"{'═' * 54}")
 
 
 if __name__ == "__main__":
