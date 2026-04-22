@@ -38,7 +38,7 @@ except ImportError:
     sys.exit(1)
 
 
-VERSION = "1.9.6"
+VERSION = "1.9.7"
 
 # ══════════════════════════════════════════════════════════════
 #  GLOBAL ENV — connection / quality settings, never from yaml
@@ -755,7 +755,7 @@ def composite_video(poster_data: list, bg_path: str, out_path: str):
         fps           = bg.fps,
         preset        = VIDEO_PRESET,
         ffmpeg_params = ["-threads", thread_str, "-crf", VIDEO_CRF],
-        logger        = "bar",
+        logger        = None,
     )
     bg.close()
     final.close()
@@ -914,7 +914,7 @@ def nexroll_register(output_name: str, out_path: Path):
 
     # 2 — Register the preroll
     payload = {
-        "file_path":    host_path,
+        "path":         host_path,
         "display_name": display_name,
         "category_id":  cat_id,
     }
