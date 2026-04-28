@@ -17,13 +17,15 @@ A Docker container that fetches upcoming movie and TV posters from **Radarr** an
 5. Output files are saved to `/output` (or `OUTPUT_DIR` if set) named by the `output=` field in the yaml
 
 ## Sample Videos to use:
-### 📺 TV Sample
+> [!NOTE]
+> (Use them with the SampleTV.yaml and SampleMovie.yaml files)
 
-[![TV Sample](https://img.youtube.com/vi/Hjvc9LJRTt4/maxresdefault.jpg)](https://youtu.be/Hjvc9LJRTt4)
+### 📺 TV Sample
+▶️ [Watch on YouTube](https://youtu.be/Hjvc9LJRTt4)
 
 ### 🎬 Movie Sample
+▶️ [Watch on YouTube](https://youtu.be/0LrKlTkHwA4)
 
-[![Movie Sample](https://img.youtube.com/vi/0LrKlTkHwA4/maxresdefault.jpg)](https://youtu.be/0LrKlTkHwA4)
 ---
 
 ## Source folder layout
