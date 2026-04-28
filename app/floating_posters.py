@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-floating_posters.py  —  v1.9.1
+floating_posters.py  —  v1.9.9
 ────────────────────────────────────────────────────────────────
 Scans /input for video files. Each video must have a matching
 .yaml file in the same directory that defines all settings.

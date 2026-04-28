@@ -1,4 +1,4 @@
-# 🎬 floating-posters  `v1.9.2`
+# 🎬 floating-posters  `v1.9.9`
 
 A Docker container that fetches upcoming movie and TV posters from **Radarr** and **Sonarr**, and composites them as **floating, animated overlays** onto background videos — ready to drop into [NeXroll](https://github.com/JFLXCLOUD/NeXroll) as Plex prerolls.
 
@@ -16,6 +16,15 @@ A Docker container that fetches upcoming movie and TV posters from **Radarr** an
 4. Each video is processed independently using its yaml settings
 5. Output files are saved to `/output` (or `OUTPUT_DIR` if set) named by the `output=` field in the yaml
 
+---
+
+## Sample Videos to use:
+> [!NOTE]
+> (Use them with the SampleTV.yaml and SampleMovie.yaml files)
+### 📺 TV Sample
+▶️ [Watch on YouTube](https://youtu.be/Hjvc9LJRTt4)
+### 🎬 Movie Sample
+▶️ [Watch on YouTube](https://youtu.be/0LrKlTkHwA4)
 ---
 
 ## Source folder layout
@@ -72,7 +81,7 @@ services:
           cpus: "2.0"
 ```
 
-> **Tip:** If floating-posters is in the same stack as Radarr and Sonarr, add `depends_on: [radarr, sonarr]` to ensure container start order. The `STARTUP_RETRY_ATTEMPTS` and `STARTUP_RETRY_DELAY` env vars handle the gap between a container starting and the service being ready to accept API calls.
+> **Tip:** If floating-posters is in the same stack as Radarr, Sonarr, and NeXroll, add them all to `depends_on` to ensure container start order. The `STARTUP_RETRY_ATTEMPTS` and `STARTUP_RETRY_DELAY` env vars handle the gap between a container starting and the service being ready to accept API calls.
 
 ### 3. Run it
 
@@ -294,6 +303,7 @@ If you're running floating-posters in the same docker-compose stack as Radarr an
 depends_on:
   - radarr
   - sonarr
+  - nexroll
 ```
 
 > **Note:** `depends_on` only guarantees that the Radarr/Sonarr *containers* start before floating-posters — not that the services inside them are ready. The retry logic handles the remaining gap.
@@ -361,6 +371,7 @@ If you're running floating-posters in the same docker-compose stack as Radarr an
 depends_on:
   - radarr
   - sonarr
+  - nexroll
 ```
 
 > **Note:** `depends_on` only guarantees that the Radarr/Sonarr *containers* start before floating-posters — not that the services inside them are ready. The retry logic handles the remaining gap.
@@ -397,67 +408,93 @@ docker run --rm \
 On every push to `main`, GitHub Actions automatically:
 - Builds for `linux/amd64` and `linux/arm64` (Apple Silicon / Unraid)
 - Pushes `ghcr.io/TechJedi51/floating-posters:latest`
-- Tags version releases (`v1.9.2`) as `:1.9.2` and `:1.9`
+- Tags version releases (`v1.9.9`) as `:1.9.9` and `:1.9`
 
 ---
 
 ## Changelog
 
+### v1.9.9
+- **Duplicate registration prevention**: `nexroll_find_existing()` checks `GET /external/prerolls` before registering — skips re-registration if a preroll with the same path already exists; video file on disk is always updated by the render step regardless
+
+### v1.9.8
+- **`PYTHONUNBUFFERED=1`** added to Dockerfile and `python3 -u` used in entrypoint — ensures all log output is flushed immediately to Docker rather than being buffered and lost if the process exits
+
+### v1.9.7
+- Fixed NeXroll registration payload field name: `file_path` → `path` (API docs were wrong; actual validation schema requires `path`)
+- Suppressed moviepy progress bar (`logger=None`) — removes noisy `▓▓▓ 37%` lines from Docker logs
+
+### v1.9.6
+- Added full response body logging on HTTP errors (422 etc.) to diagnose NeXroll API rejections
+- Fixed `UnboundLocalError` on `cat_id` — moved debug print to after the category lookup call
+- Category creation response now tries multiple ID field names (`id`, `category_id`, `category.id`)
+
+### v1.9.5
+- Switched NeXroll auth from `Authorization: Bearer` header to `?api_key=` query parameter — NeXroll only accepts the query param form despite documenting both
+- Fixed categories response parsing to handle `{"categories": [...], "count": N}` wrapper returned by actual API
+
+### v1.9.4
+- NeXroll API calls now retry on 401 (not just connection errors) — handles NeXroll still initialising its auth system when floating-posters first starts
+- `nexroll` added to `depends_on` in docker-compose sample
+
+### v1.9.3
+- Improved NeXroll error messages — distinguishes 401 (bad/missing key), 403 (read-only key), connection refused, and timeout as separate cases with actionable guidance
+
 ### v1.9.2
-- **Startup retry**: Radarr and Sonarr connection attempts now retry with configurable delay (`STARTUP_RETRY_ATTEMPTS=5`, `STARTUP_RETRY_DELAY=30`) instead of immediately failing — handles the gap between container start and service readiness
-- **`depends_on`** added to docker-compose sample so Radarr/Sonarr containers start before floating-posters
-- Retry progress logged per-attempt with attempt count and delay
+- **Startup retry**: Radarr and Sonarr connection attempts retry with configurable backoff (`STARTUP_RETRY_ATTEMPTS=5`, `STARTUP_RETRY_DELAY=30`) instead of immediately failing
+- `depends_on: [radarr, sonarr, nexroll]` added to docker-compose sample
+- Retry progress logged per-attempt with attempt count and remaining delay
 
 ### v1.9.1
-- Clarified output configuration in `docker-compose.yml` and README — documented both standalone (`/output` bind mount) and NeXroll shared volume (`OUTPUT_DIR` + `NEXROLL_OUTPUT_PATH`) setups
-- `OUTPUT_DIR` env var documented as the correct way to redirect output when using a shared volume with NeXroll
+- Documented both output modes in docker-compose and README: standalone (`/output` bind mount) vs NeXroll shared volume (`OUTPUT_DIR=/nexroll_media/Pre-Rolls`)
 
 ### v1.9.0
-- **Built-in scheduler**: `RERUN_INTERVAL` env var (e.g. `24h`, `12h`, `6h`, `1d`, `30m`) keeps the container running and re-executes on a repeating schedule
-- Supports `m` (minutes), `h` (hours), `d` (days) suffixes
-- Each run is numbered and timestamped in the log; next run time is shown after each completion
-- Failed runs log a warning and continue rather than crashing the container
-- `restart: unless-stopped` in docker-compose replaces `restart: "no"` when using the scheduler
+- **Built-in scheduler**: `RERUN_INTERVAL` (e.g. `24h`, `12h`, `6h`, `1d`, `30m`) keeps the container running and re-executes on a repeating schedule — no cron needed
+- Each run is numbered and timestamped; next run time shown after completion
+- Failed runs log a warning and continue rather than crashing
 
 ### v1.8.0
-- **NeXroll integration**: after each render, optionally register the output as a preroll in NeXroll via `POST /external/prerolls/register`
-- Category lookup via `GET /external/categories`; auto-creates category if not found (`NEXROLL_CREATE_CATEGORY`)
-- Optional immediate Plex sync via `POST /external/apply-category/{id}` (`NEXROLL_APPLY_TO_PLEX`)
-- `NEXROLL_OUTPUT_PATH` maps container `/output` to the host path NeXroll can access
-- NeXroll URL shown in startup log if configured
+- **NeXroll integration**: registers rendered videos with NeXroll after each successful render
+- Category lookup and auto-creation (`NEXROLL_CREATE_CATEGORY`)
+- Optional immediate Plex sync (`NEXROLL_APPLY_TO_PLEX`)
+- `NEXROLL_OUTPUT_PATH` maps container output path to the path NeXroll sees on the host
 
 ### v1.7.0
-- **New architecture**: scan-based multi-video processing — one run processes all video+yaml pairs in `/input`
-- **yaml-driven config**: all per-video settings move from docker-compose env vars to individual `.yaml` files
-- **Sonarr support**: `tv:` yaml key fetches upcoming TV series posters via Sonarr calendar API
-- **docker-compose simplified**: only connection/quality env vars remain; everything else is per-yaml
-- `pyyaml` added to dependencies
+- **Multi-video scan-based processing**: one run handles all video+yaml pairs in `/input`
+- **yaml-driven config**: all per-video settings move from docker-compose env vars to individual `.yaml` files — compose only needs connection/quality settings
+- **Sonarr support**: `tv:` yaml key fetches upcoming TV series posters via Sonarr calendar API; `movie:` routes to Radarr
 
 ### v1.6.0
-- Text wrapping for top/bottom messages (word-wraps at 85% of video width)
-- Multi-row poster layout: 6–10 posters split into 2 rows, each row centred independently
-- `ROW_GAP` config; `NUM_POSTERS` max raised to 10
+- Text wrapping for top/bottom messages (word-wraps at 85% of video width, each line centred)
+- Multi-row poster layout: 6–10 posters split into 2 centred rows — 6 (3+3) · 7 (4+3) · 8 (4+4) · 9 (5+4) · 10 (5+5)
+- `ROW_GAP` config for vertical spacing between rows; `NUM_POSTERS` max raised from 6 to 10
 
 ### v1.5.0
-- `*_BG_COLOR` and `*_BG_OPACITY` for all three text areas; `BG_OPACITY=0` removes pill
+- `*_BG_COLOR` and `*_BG_OPACITY` for all three text areas (release date, top message, bottom message)
+- `BG_OPACITY=0` removes the pill background entirely — text only, relies on shadow for legibility
 
 ### v1.4.0
-- `FONT` option with 17 bundled fonts; Poppins-Bold default
-- `TOP_MESSAGE` overlay; `BOTTOM_MESSAGE_SHADOW`
+- `FONT` config with 17 bundled fonts; Poppins-Bold is the default
+- All font packages added to Dockerfile (`fonts-liberation`, `fonts-freefont-ttf`, `fonts-crosextra-*`); Poppins downloaded from Google Fonts at build time
+- `TOP_MESSAGE` overlay with full parity to `BOTTOM_MESSAGE`
+- `BOTTOM_MESSAGE_SHADOW` option
 
 ### v1.3.0
-- Release date labels as separate clips (float in sync with poster)
-- Bottom message overlay; date format `April 20, 2026`
+- Fixed release date not showing — text labels rearchitected as separate moviepy clips instead of being embedded in the poster RGBA image
+- Date labels float in sync with their poster (same sine-wave phase)
+- `BOTTOM_MESSAGE` overlay centered at bottom of frame, fades with poster group
+- Date format changed to `April 20, 2026` style
 
 ### v1.2.0
-- Python 3.13; `apt-get upgrade` for patched openssl/libssl; `CPU_THREADS`
+- Python 3.13 base image; `apt-get upgrade` for patched openssl/libssl
+- `CPU_THREADS` env var passes `-threads N` to FFmpeg; `deploy.resources.limits.cpus` caps the container
 
 ### v1.1.0
-- `SHOW_RELEASE_DATE`, `RELEASE_DATE_COLOR/SIZE/SHADOW`
-- Fixed `set_opacity` TypeError with moviepy 1.0.3
+- `SHOW_RELEASE_DATE`, `RELEASE_DATE_COLOR`, `RELEASE_DATE_SIZE`, `RELEASE_DATE_SHADOW`
+- Fixed `set_opacity` TypeError with moviepy 1.0.3 — replaced with `VideoClip` mask for proper per-frame fade with alpha channel preservation
 
 ### v1.0.0
-- Initial release
+- Initial release: Radarr API integration, floating sine-wave animation, configurable fade/shadow/rounded corners, multi-arch Docker image (amd64 + arm64)
 
 ---
 
