@@ -72,9 +72,41 @@ movie:
   - BOTTOM_MESSAGE_BG_COLOR=#000000
   - BOTTOM_MESSAGE_BG_OPACITY=170
 
-  # ── Float animation ──────────────────────────────────────────
+  # ── Animation style ─────────────────────────────────────────
+  # bounce    — sine-wave vertical float (default)
+  # fade      — static positions, fade in/out only
+  # wave      — left-to-right cascade with staggered delay
+  # pop-in    — each poster scales from large down to grid, staggered
+  # carousel  — elliptical 3-D style rotation
+  # spotlight — one poster at a time, large & centred, cycling through all
+  # drift     — entire grid drifts slowly left or right
+  - ANIMATION_STYLE=bounce
+
+  # ── Float / bounce settings (bounce + drift styles) ──────────
   - FLOAT_AMPLITUDE=14.0
   - FLOAT_SPEED=0.55
+
+  # ── Wave settings ─────────────────────────────────────────────
+  # - WAVE_STAGGER=0.3          # seconds between each poster's entrance
+
+  # ── Pop-in settings ───────────────────────────────────────────
+  # - POPIN_SCALE=2.5            # initial scale factor (e.g. 2.5 = 250%)
+  # - POPIN_DURATION=1.0         # seconds to scale down to final size
+  # - POPIN_STAGGER=0.3          # seconds between each poster's pop
+
+  # ── Carousel settings ─────────────────────────────────────────
+  # - CAROUSEL_RX=0.32           # horizontal ellipse radius (fraction of vid width)
+  # - CAROUSEL_RY=0.06           # depth offset (fraction of vid height)
+  # - CAROUSEL_MIN_SCALE=0.45    # scale of back poster
+  # - CAROUSEL_MAX_SCALE=1.0     # scale of front poster
+
+  # ── Spotlight settings ────────────────────────────────────────
+  # - SPOTLIGHT_SIZE=0.35        # poster width as fraction of video width
+  # - SPOTLIGHT_BREATHE=0.03     # subtle scale oscillation (0=none)
+
+  # ── Drift settings ────────────────────────────────────────────
+  # - DRIFT_SPEED=30             # pixels per second
+  # - DRIFT_DIRECTION=left       # left | right
 
   # ── NeXroll registration ─────────────────────────────────────
   # Registers the rendered video with NeXroll after a successful render.

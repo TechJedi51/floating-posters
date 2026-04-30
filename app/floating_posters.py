@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-floating_posters.py  —  v2.0.0
+floating_posters.py  —  v2.1.0
 ────────────────────────────────────────────────────────────────
 Scans /input for video files. Each video must have a matching
 .yaml file in the same directory that defines all settings.
@@ -38,7 +38,7 @@ except ImportError:
     sys.exit(1)
 
 
-VERSION = "2.0.0"
+VERSION = "2.1.0"
 
 # ══════════════════════════════════════════════════════════════
 #  GLOBAL ENV — connection / quality settings, never from yaml
@@ -88,6 +88,7 @@ DEFAULT_CONFIG = {
     # Float animation
     "FLOAT_AMPLITUDE":         14.0,
     "FLOAT_SPEED":             0.55,
+    "ANIMATION_STYLE":        "bounce",   # bounce|fade|wave|pop-in|carousel|spotlight|drift
     # Timing
     "START_TIME":              2.0,
     "POSTER_DURATION":         8.0,
@@ -663,6 +664,431 @@ def build_rows(poster_data: list) -> list:
     return [poster_data[:split], poster_data[split:]]
 
 
+
+# ══════════════════════════════════════════════════════════════
+#  ANIMATION STYLES
+# ══════════════════════════════════════════════════════════════
+#
+#  bounce   — sine-wave vertical float (default)
+#  fade     — static grid positions, fade in/out only
+#  wave     — posters cascade in left-to-right with staggered delay
+#  pop-in   — each poster scales from large down to grid size, staggered
+#  carousel — elliptical rotation with depth-based scaling (3D feel)
+#  spotlight— one poster at a time, large & centred, cycling through all
+#  drift    — entire grid drifts slowly horizontally while fading
+# ══════════════════════════════════════════════════════════════
+
+
+def _fade_opacity(t: float, dur: float) -> float:
+    """Standard fade-in / fade-out opacity for time t within a clip of length dur."""
+    fade = CFG["FADE_DURATION"]
+    if t < fade:
+        return t / fade
+    if t > dur - fade:
+        return max(0.0, (dur - t) / fade)
+    return 1.0
+
+
+# ── helpers shared by full-frame styles ───────────────────────
+
+def _paste_with_alpha(canvas: "Image.Image", img: "Image.Image",
+                      cx: int, cy: int, opacity: float = 1.0):
+    """Paste img (RGBA) centred on (cx, cy) onto canvas, scaling opacity."""
+    if opacity <= 0:
+        return
+    if opacity < 1.0:
+        r, g, b, a = img.split()
+        a = a.point(lambda v: int(v * opacity))
+        img = Image.merge("RGBA", (r, g, b, a))
+    px = cx - img.width  // 2
+    py = cy - img.height // 2
+    canvas.paste(img, (px, py), img)
+
+
+def _full_frame_clip(make_rgba, dur: float, vid_w: int, vid_h: int,
+                     start: float) -> "ImageClip":
+    """
+    Wrap a per-frame RGBA renderer (make_rgba(t) → H×W×4 ndarray) into a
+    moviepy clip with correct alpha mask.  Uses a 1-frame cache so rgb and
+    mask renderers don't recompute the same frame twice.
+    """
+    _cache = {"t": object(), "rgba": None}
+
+    def _get(t):
+        if _cache["t"] != t:
+            _cache["t"]    = t
+            _cache["rgba"] = make_rgba(t)
+        return _cache["rgba"]
+
+    rgb_clip  = VideoClip(lambda t: _get(t)[:, :, :3],          duration=dur)
+    mask_clip = VideoClip(lambda t: _get(t)[:, :, 3] / 255.0,   duration=dur, ismask=True)
+    return rgb_clip.set_mask(mask_clip).set_start(start)
+
+
+# ── BOUNCE ────────────────────────────────────────────────────
+
+def style_bounce(poster_data, grid, vid_w, vid_h):
+    """Existing sine-wave vertical float."""
+    clips = []
+    for d, (img, date, fx, fy, center_x, bottom_y, phase) in zip(poster_data, grid):
+        amp   = CFG["FLOAT_AMPLITUDE"]
+        speed = CFG["FLOAT_SPEED"]
+        start = CFG["START_TIME"]
+        dur   = CFG["POSTER_DURATION"]
+
+        def y_fn(t, _fy=fy, _amp=amp, _speed=speed, _phase=phase):
+            return _fy + _amp * math.sin(2 * math.pi * _speed * t + _phase)
+
+        clips.append(_rgba_to_clip(img, fx, y_fn, start, dur))
+
+        if CFG["SHOW_RELEASE_DATE"] and date:
+            def dy_fn(t, _by=bottom_y, _amp=amp, _speed=speed, _phase=phase):
+                return _by + 6 + _amp * math.sin(2 * math.pi * _speed * t + _phase)
+            txt = make_text_image(date, CFG["RELEASE_DATE_SIZE"],
+                                  CFG["RELEASE_DATE_COLOR"], CFG["RELEASE_DATE_SHADOW"],
+                                  CFG["RELEASE_DATE_BG_COLOR"], CFG["RELEASE_DATE_BG_OPACITY"])
+            clips.append(_rgba_to_clip(txt, center_x - txt.width // 2, dy_fn, start, dur))
+    return clips
+
+
+# ── FADE ──────────────────────────────────────────────────────
+
+def style_fade(poster_data, grid, vid_w, vid_h):
+    """Static grid positions — fade in/out only, no motion."""
+    clips = []
+    for d, (img, date, fx, fy, center_x, bottom_y, phase) in zip(poster_data, grid):
+        start = CFG["START_TIME"]
+        dur   = CFG["POSTER_DURATION"]
+        clips.append(_rgba_to_clip(img, fx, fy, start, dur))
+        if CFG["SHOW_RELEASE_DATE"] and date:
+            txt = make_text_image(date, CFG["RELEASE_DATE_SIZE"],
+                                  CFG["RELEASE_DATE_COLOR"], CFG["RELEASE_DATE_SHADOW"],
+                                  CFG["RELEASE_DATE_BG_COLOR"], CFG["RELEASE_DATE_BG_OPACITY"])
+            clips.append(_rgba_to_clip(txt, center_x - txt.width // 2, bottom_y + 6, start, dur))
+    return clips
+
+
+# ── WAVE ──────────────────────────────────────────────────────
+
+def style_wave(poster_data, grid, vid_w, vid_h):
+    """
+    Posters cascade in left-to-right, each delayed by WAVE_STAGGER seconds.
+    After arriving they hold position (no float).
+    """
+    clips     = []
+    stagger   = float(os.getenv("WAVE_STAGGER", "0.3"))
+    n         = len(grid)
+    base_start = CFG["START_TIME"]
+    fade      = CFG["FADE_DURATION"]
+
+    for i, (d, (img, date, fx, fy, center_x, bottom_y, phase)) in             enumerate(zip(poster_data, grid)):
+        delay   = i * stagger
+        start   = base_start + delay
+        dur     = max(CFG["POSTER_DURATION"] - delay, fade * 2 + 0.1)
+
+        clips.append(_rgba_to_clip(img, fx, fy, start, dur))
+        if CFG["SHOW_RELEASE_DATE"] and date:
+            txt = make_text_image(date, CFG["RELEASE_DATE_SIZE"],
+                                  CFG["RELEASE_DATE_COLOR"], CFG["RELEASE_DATE_SHADOW"],
+                                  CFG["RELEASE_DATE_BG_COLOR"], CFG["RELEASE_DATE_BG_OPACITY"])
+            clips.append(_rgba_to_clip(txt, center_x - txt.width // 2,
+                                       bottom_y + 6, start, dur))
+    return clips
+
+
+# ── DRIFT ─────────────────────────────────────────────────────
+
+def style_drift(poster_data, grid, vid_w, vid_h):
+    """
+    Entire grid drifts slowly left (or right) while fading in/out.
+    DRIFT_SPEED pixels/second.  DRIFT_DIRECTION: left | right
+    """
+    clips     = []
+    speed     = float(os.getenv("DRIFT_SPEED",     "30"))
+    direction = os.getenv("DRIFT_DIRECTION", "left")
+    sign      = -1 if direction == "left" else 1
+    start     = CFG["START_TIME"]
+    dur       = CFG["POSTER_DURATION"]
+
+    for d, (img, date, fx, fy, center_x, bottom_y, phase) in zip(poster_data, grid):
+        def x_fn(t, _fx=fx):
+            return _fx + sign * speed * t
+
+        def y_fn(t, _fy=fy):
+            return _fy
+
+        def pos_fn(t, _fx=fx, _fy=fy):
+            return (int(_fx + sign * speed * t), _fy)
+
+        # drift clip: override position
+        arr   = np.array(img.convert("RGBA"))
+        rgb   = arr[:, :, :3]
+        alpha = arr[:, :, 3] / 255.0
+        clip  = ImageClip(rgb)
+
+        def mask_frame(t, _alpha=alpha):
+            return _alpha * _fade_opacity(t, dur)
+
+        def _pos(t, _fx=fx, _fy=fy):
+            return (int(_fx + sign * speed * t), _fy)
+
+        mask = VideoClip(mask_frame, ismask=True, duration=dur)
+        clips.append(
+            clip.set_mask(mask).set_start(start).set_duration(dur).set_position(_pos)
+        )
+
+        if CFG["SHOW_RELEASE_DATE"] and date:
+            txt   = make_text_image(date, CFG["RELEASE_DATE_SIZE"],
+                                    CFG["RELEASE_DATE_COLOR"], CFG["RELEASE_DATE_SHADOW"],
+                                    CFG["RELEASE_DATE_BG_COLOR"], CFG["RELEASE_DATE_BG_OPACITY"])
+            tarr  = np.array(txt.convert("RGBA"))
+            trgb  = tarr[:, :, :3]
+            talpha= tarr[:, :, 3] / 255.0
+            tclip = ImageClip(trgb)
+            tmask = VideoClip(lambda t, _a=talpha: _a * _fade_opacity(t, dur),
+                              ismask=True, duration=dur)
+            txt_x0 = center_x - txt.width // 2
+
+            def _tpos(t, _x=txt_x0, _y=bottom_y+6):
+                return (int(_x + sign * speed * t), _y)
+
+            clips.append(
+                tclip.set_mask(tmask).set_start(start).set_duration(dur).set_position(_tpos)
+            )
+    return clips
+
+
+# ── POP-IN ────────────────────────────────────────────────────
+
+def style_popin(poster_data, grid, vid_w, vid_h):
+    """
+    Each poster scales from POP_SCALE (default 2.5×) down to its final size
+    with an ease-out, posters arrive one by one.  After landing they hold with
+    a gentle bounce.
+    """
+    POP_SCALE    = float(os.getenv("POPIN_SCALE",   "2.5"))
+    POP_DURATION = float(os.getenv("POPIN_DURATION","1.0"))
+    STAGGER      = float(os.getenv("POPIN_STAGGER", "0.3"))
+    start        = CFG["START_TIME"]
+    dur          = CFG["POSTER_DURATION"]
+    fade         = CFG["FADE_DURATION"]
+    amp          = CFG["FLOAT_AMPLITUDE"] * 0.4
+    speed        = CFG["FLOAT_SPEED"]
+    n            = len(grid)
+
+    def make_rgba(t):
+        canvas = Image.new("RGBA", (vid_w, vid_h), (0, 0, 0, 0))
+        opacity = _fade_opacity(t, dur)
+
+        for i, (d, (img, date, fx, fy, center_x, bottom_y, phase)) in                 enumerate(zip(poster_data, grid)):
+            t_off = t - i * STAGGER
+            if t_off <= 0:
+                continue
+
+            w, h = img.width, img.height
+            cy   = fy + h // 2
+
+            if t_off < POP_DURATION:
+                prog  = 1 - (1 - t_off / POP_DURATION) ** 3   # ease-out cubic
+                scale = POP_SCALE - (POP_SCALE - 1.0) * prog
+            else:
+                scale = 1.0
+                bounce_t = t_off - POP_DURATION
+                cy = int(cy + amp * math.sin(2 * math.pi * speed * bounce_t + phase))
+
+            new_w = max(1, int(w * scale))
+            new_h = max(1, int(h * scale))
+            scaled = img.resize((new_w, new_h), Image.LANCZOS)
+            _paste_with_alpha(canvas, scaled, fx + w // 2, cy, opacity)
+
+            if CFG["SHOW_RELEASE_DATE"] and date:
+                txt = make_text_image(date, CFG["RELEASE_DATE_SIZE"],
+                                      CFG["RELEASE_DATE_COLOR"], CFG["RELEASE_DATE_SHADOW"],
+                                      CFG["RELEASE_DATE_BG_COLOR"], CFG["RELEASE_DATE_BG_OPACITY"])
+                if t_off >= POP_DURATION:
+                    txt_cy = bottom_y + 6 + txt.height // 2 + int(
+                        amp * math.sin(2 * math.pi * speed * (t_off - POP_DURATION) + phase))
+                    _paste_with_alpha(canvas, txt, center_x, txt_cy, opacity)
+
+        return np.array(canvas)
+
+    return [_full_frame_clip(make_rgba, dur, vid_w, vid_h, start)]
+
+
+# ── CAROUSEL ─────────────────────────────────────────────────
+
+def style_carousel(poster_data, grid, vid_w, vid_h):
+    """
+    Posters orbit an ellipse (simulated 3-D).  Front poster is largest.
+    One full rotation per POSTER_DURATION so every poster is front once.
+    """
+    start    = CFG["START_TIME"]
+    dur      = CFG["POSTER_DURATION"]
+    fade     = CFG["FADE_DURATION"]
+    n        = len(poster_data)
+
+    cx       = vid_w // 2
+    cy       = int(vid_h * CFG["VERTICAL_POS"])
+    rx       = vid_w  * float(os.getenv("CAROUSEL_RX", "0.32"))   # horiz radius
+    ry       = vid_h  * float(os.getenv("CAROUSEL_RY", "0.06"))   # depth offset
+    min_sc   = float(os.getenv("CAROUSEL_MIN_SCALE", "0.45"))
+    max_sc   = float(os.getenv("CAROUSEL_MAX_SCALE", "1.0"))
+    rpm      = 2 * math.pi / dur   # radians per second (1 full rotation)
+
+    init_angles = [2 * math.pi * i / n for i in range(n)]
+    imgs        = [d["img"]  for d in poster_data]
+    dates       = [d["date"] for d in poster_data]
+
+    # Pre-render date labels
+    date_imgs = []
+    for date in dates:
+        if CFG["SHOW_RELEASE_DATE"] and date:
+            date_imgs.append(make_text_image(
+                date, CFG["RELEASE_DATE_SIZE"], CFG["RELEASE_DATE_COLOR"],
+                CFG["RELEASE_DATE_SHADOW"], CFG["RELEASE_DATE_BG_COLOR"],
+                CFG["RELEASE_DATE_BG_OPACITY"]))
+        else:
+            date_imgs.append(None)
+
+    def make_rgba(t):
+        canvas  = Image.new("RGBA", (vid_w, vid_h), (0, 0, 0, 0))
+        opacity = _fade_opacity(t, dur)
+
+        # Compute each poster's current state
+        states = []
+        for i in range(n):
+            angle = init_angles[i] + rpm * t
+            depth  = math.cos(angle)                           # 1=front -1=back
+            scale  = min_sc + (max_sc - min_sc) * (depth + 1) / 2
+            px     = int(cx + rx * math.sin(angle))
+            py     = int(cy + ry * depth)
+            states.append((depth, scale, px, py, i))
+
+        # Draw back-to-front (most negative depth first)
+        states.sort(key=lambda s: s[0])
+
+        for depth, scale, px, py, i in states:
+            img    = imgs[i]
+            new_w  = max(1, int(img.width  * scale))
+            new_h  = max(1, int(img.height * scale))
+            scaled = img.resize((new_w, new_h), Image.LANCZOS)
+            _paste_with_alpha(canvas, scaled, px, py, opacity)
+
+            if date_imgs[i] is not None:
+                txt = date_imgs[i]
+                # Scale date label with poster
+                tw  = max(1, int(txt.width  * scale))
+                th  = max(1, int(txt.height * scale))
+                tsc = txt.resize((tw, th), Image.LANCZOS)
+                _paste_with_alpha(canvas, tsc, px, py + new_h // 2 + th // 2 + 4, opacity)
+
+        return np.array(canvas)
+
+    return [_full_frame_clip(make_rgba, dur, vid_w, vid_h, start)]
+
+
+# ── SPOTLIGHT ─────────────────────────────────────────────────
+
+def style_spotlight(poster_data, grid, vid_w, vid_h):
+    """
+    One poster at a time, large and centred.  Each gets equal screen time,
+    crossfading into the next.  The poster scales slightly (gentle breathe).
+    """
+    start     = CFG["START_TIME"]
+    dur       = CFG["POSTER_DURATION"]
+    fade      = CFG["FADE_DURATION"]
+    n         = len(poster_data)
+    slot_dur  = dur / n
+    xfade     = min(fade, slot_dur * 0.3)   # crossfade overlap
+    cx        = vid_w // 2
+    cy        = int(vid_h * CFG["VERTICAL_POS"])
+    w_max     = int(vid_w * float(os.getenv("SPOTLIGHT_SIZE", "0.35")))
+    breathe   = float(os.getenv("SPOTLIGHT_BREATHE", "0.03"))  # scale oscillation
+
+    imgs   = [d["img"]  for d in poster_data]
+    dates  = [d["date"] for d in poster_data]
+
+    date_imgs = []
+    for date in dates:
+        if CFG["SHOW_RELEASE_DATE"] and date:
+            date_imgs.append(make_text_image(
+                date, CFG["RELEASE_DATE_SIZE"], CFG["RELEASE_DATE_COLOR"],
+                CFG["RELEASE_DATE_SHADOW"], CFG["RELEASE_DATE_BG_COLOR"],
+                CFG["RELEASE_DATE_BG_OPACITY"]))
+        else:
+            date_imgs.append(None)
+
+    # Pre-scale each poster to spotlight width
+    scaled_imgs = []
+    for img in imgs:
+        aspect = img.height / img.width
+        sw = w_max
+        sh = int(sw * aspect)
+        scaled_imgs.append(img.resize((sw, sh), Image.LANCZOS))
+
+    def make_rgba(t):
+        canvas  = Image.new("RGBA", (vid_w, vid_h), (0, 0, 0, 0))
+        overall = _fade_opacity(t, dur)
+
+        for i in range(n):
+            slot_start = i * slot_dur
+            slot_end   = slot_start + slot_dur
+            # Local time within this slot
+            lt = t - slot_start
+            if lt < -xfade or lt > slot_dur + xfade:
+                continue
+            # Crossfade opacity
+            if lt < xfade:
+                alpha_s = lt / xfade
+            elif lt > slot_dur - xfade:
+                alpha_s = max(0.0, (slot_dur - lt) / xfade)
+            else:
+                alpha_s = 1.0
+
+            op = overall * alpha_s
+            if op <= 0:
+                continue
+
+            img = scaled_imgs[i]
+            # Gentle breathing scale
+            sc = 1.0 + breathe * math.sin(2 * math.pi * 0.4 * (t - slot_start))
+            new_w = max(1, int(img.width  * sc))
+            new_h = max(1, int(img.height * sc))
+            simg  = img.resize((new_w, new_h), Image.LANCZOS)
+            _paste_with_alpha(canvas, simg, cx, cy, op)
+
+            if date_imgs[i]:
+                txt = date_imgs[i]
+                ty  = cy + new_h // 2 + txt.height // 2 + 8
+                _paste_with_alpha(canvas, txt, cx, ty, op)
+
+        return np.array(canvas)
+
+    return [_full_frame_clip(make_rgba, dur, vid_w, vid_h, start)]
+
+
+# ── DISPATCHER ────────────────────────────────────────────────
+
+STYLE_MAP = {
+    "bounce":    style_bounce,
+    "fade":      style_fade,
+    "wave":      style_wave,
+    "drift":     style_drift,
+    "pop-in":    style_popin,
+    "carousel":  style_carousel,
+    "spotlight": style_spotlight,
+}
+
+
+def get_style_clips(poster_data, grid, vid_w, vid_h) -> list:
+    """Return the list of poster clips for the configured ANIMATION_STYLE."""
+    name = CFG.get("ANIMATION_STYLE", "bounce").lower().strip()
+    if name not in STYLE_MAP:
+        print(f"  ⚠  Unknown ANIMATION_STYLE '{name}' — falling back to 'bounce'")
+        name = "bounce"
+    print(f"  [style] {name}")
+    return STYLE_MAP[name](poster_data, grid, vid_w, vid_h)
+
 # ══════════════════════════════════════════════════════════════
 #  VIDEO COMPOSITING
 # ══════════════════════════════════════════════════════════════
@@ -674,6 +1100,7 @@ def composite_video(poster_data: list, bg_path: str, out_path: str):
     vid_w, vid_h = bg.size
     n            = len(poster_data)
 
+    # ── Build grid layout ──────────────────────────────────────
     rows      = build_rows(poster_data)
     n_rows    = len(rows)
     row_max_h = [max(d["img"].height for d in row) for row in rows]
@@ -682,9 +1109,11 @@ def composite_video(poster_data: list, bg_path: str, out_path: str):
     block_top = int(vid_h * CFG["VERTICAL_POS"] - total_h / 2)
     block_top = max(10, min(block_top, vid_h - total_h - 10))
 
-    phases     = [(2 * math.pi * i) / n for i in range(n)]
-    all_clips  = [bg]
-    y_cursor   = block_top
+    phases = [(2 * math.pi * i) / n for i in range(n)]
+
+    # grid: flat list of (img, date, final_x, final_y, center_x, bottom_y, phase)
+    grid      = []
+    y_cursor  = block_top
     poster_idx = 0
 
     for row_num, row in enumerate(rows):
@@ -693,22 +1122,25 @@ def composite_video(poster_data: list, bg_path: str, out_path: str):
         x_cursor = (vid_w - row_w) // 2
 
         for d in row:
-            img   = d["img"]
-            phase = phases[poster_idx]
+            img    = d["img"]
+            phase  = phases[poster_idx]
             poster_idx += 1
             base_y = y_cursor + (row_h - img.height) // 2
-
-            all_clips.append(make_poster_clip(img, x_cursor, base_y, phase))
-
-            if CFG["SHOW_RELEASE_DATE"] and d.get("date"):
-                all_clips.append(
-                    make_date_clip(d["date"],
-                                   x_cursor + img.width // 2,
-                                   base_y + img.height,
-                                   phase))
+            grid.append((
+                img,
+                d.get("date", ""),
+                x_cursor,                    # final_x
+                base_y,                      # final_y
+                x_cursor + img.width // 2,   # center_x
+                base_y + img.height,         # bottom_y
+                phase,
+            ))
             x_cursor += img.width + CFG["PADDING"]
 
         y_cursor += row_h + CFG["ROW_GAP"]
+
+    # ── Animation style ───────────────────────────────────────
+    all_clips = [bg] + get_style_clips(poster_data, grid, vid_w, vid_h)
 
     # Bottom message
     if CFG["BOTTOM_MESSAGE_SHOW"] and (CFG["BOTTOM_MESSAGE"] or CFG["BOTTOM_MESSAGE_ADD_DATE"]):

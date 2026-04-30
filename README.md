@@ -1,4 +1,4 @@
-# 🎬 floating-posters  `v2.0.0`
+# 🎬 floating-posters  `v2.1.0`
 
 A Docker container that fetches upcoming movie and TV posters from **Radarr** and **Sonarr**, and composites them as **floating, animated overlays** onto background videos — ready to drop into [NeXroll](https://github.com/JFLXCLOUD/NeXroll) as Plex prerolls.
 
@@ -268,11 +268,29 @@ With this setup there is no need for `NEXROLL_OUTPUT_PATH` to translate between 
 
 **`NEXROLL_OUTPUT_PATH` in standalone mode:** If floating-posters and NeXroll are in separate stacks (not sharing a volume), `NEXROLL_OUTPUT_PATH` must be set to the host filesystem path that NeXroll can access. For example if your volume is `- /mnt/media/prerolls:/output`, set `NEXROLL_OUTPUT_PATH=/mnt/media/prerolls`.
 
+### Animation style *(new in v2.1.0)*
+
+| Setting | Default | Description |
+|---|---|---|
+| `ANIMATION_STYLE` | `bounce` | Animation style — see options below |
+
+| Style | Description |
+|---|---|
+| `bounce` | Sine-wave vertical float (original behaviour) |
+| `fade` | Static grid positions, fade in/out only |
+| `wave` | Posters cascade in left-to-right with staggered delay |
+| `pop-in` | Each poster scales from large down to grid size, staggered |
+| `carousel` | Elliptical orbit with depth-based scaling (3-D feel) |
+| `spotlight` | One poster at a time, large & centred, cycling through all |
+| `drift` | Entire grid drifts slowly left or right while fading |
+
+Each style has optional fine-tuning settings — see `.yaml.example` for the full list (`WAVE_STAGGER`, `POPIN_SCALE`, `CAROUSEL_RX`, `SPOTLIGHT_SIZE`, `DRIFT_SPEED`, etc.).
+
 ### Float animation
 
 | Setting | Default | Description |
 |---|---|---|
-| `FLOAT_AMPLITUDE` | `14.0` | Max pixels of vertical drift |
+| `FLOAT_AMPLITUDE` | `14.0` | Max pixels of vertical drift (bounce/drift styles) |
 | `FLOAT_SPEED` | `0.55` | Oscillations per second |
 
 ---
@@ -408,11 +426,17 @@ docker run --rm \
 On every push to `main`, GitHub Actions automatically:
 - Builds for `linux/amd64` and `linux/arm64` (Apple Silicon / Unraid)
 - Pushes `ghcr.io/TechJedi51/floating-posters:latest`
-- Tags version releases (`v2.0.0`) as `:2.0.0` and `:2.0`
+- Tags version releases (`v2.1.0`) as `:2.1.0` and `:2.1`
 
 ---
 
 ## Changelog
+
+### v2.1.0
+- **7 animation styles**: `bounce` (original), `fade`, `wave`, `pop-in`, `carousel`, `spotlight`, `drift` — selected per-video via `ANIMATION_STYLE` in the yaml
+- Full-frame PIL renderer (`_full_frame_clip`) used for `carousel`, `pop-in`, and `spotlight` to support z-ordering and per-frame scaling
+- Each style has optional fine-tuning env vars (`WAVE_STAGGER`, `POPIN_SCALE`, `CAROUSEL_RX`, `SPOTLIGHT_SIZE`, `DRIFT_SPEED`, etc.)
+- Grid layout pre-computed into a flat list and passed to style functions — clean separation between layout and animation
 
 ### v2.0.0 — First Public Release 🎉
 - Version bump marking the first stable public release
