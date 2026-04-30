@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - beta
     tags:
       - "v*.*.*"
   pull_request:
@@ -42,13 +43,14 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            # Tag :latest on every push to main
-            type=raw,value=latest,enable={{is_default_branch}}
-            # Tag :v1.2.3 on version tags
+            # main branch → :latest
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+            # beta branch → :beta
+            type=raw,value=beta,enable=${{ github.ref == 'refs/heads/beta' }}
+            # version tags (v2.1.0) → :2.1.0 and :2.1  (main only)
             type=semver,pattern={{version}}
-            # Tag :v1.2 on version tags
             type=semver,pattern={{major}}.{{minor}}
-            # Tag :sha-abc1234 on every push
+            # every push → :sha-abc1234 (useful for pinning a specific build)
             type=sha,prefix=sha-,format=short
 
       - name: Build and push Docker image
