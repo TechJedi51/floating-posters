@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-floating_posters.py  —  v2.1.0
+floating_posters.py  —  v2.1.1
 ────────────────────────────────────────────────────────────────
 Scans /input for video files. Each video must have a matching
 .yaml file in the same directory that defines all settings.
@@ -38,7 +38,7 @@ except ImportError:
     sys.exit(1)
 
 
-VERSION = "2.1.0"
+VERSION = "2.1.1"
 
 # ══════════════════════════════════════════════════════════════
 #  GLOBAL ENV — connection / quality settings, never from yaml
@@ -876,6 +876,17 @@ def style_popin(poster_data, grid, vid_w, vid_h):
     speed        = CFG["FLOAT_SPEED"]
     n            = len(grid)
 
+    # Pre-render date labels ONCE — never call make_text_image inside make_rgba
+    date_imgs = []
+    for _, (img, date, fx, fy, center_x, bottom_y, phase) in zip(poster_data, grid):
+        if CFG["SHOW_RELEASE_DATE"] and date:
+            date_imgs.append(make_text_image(
+                date, CFG["RELEASE_DATE_SIZE"], CFG["RELEASE_DATE_COLOR"],
+                CFG["RELEASE_DATE_SHADOW"], CFG["RELEASE_DATE_BG_COLOR"],
+                CFG["RELEASE_DATE_BG_OPACITY"]))
+        else:
+            date_imgs.append(None)
+
     def make_rgba(t):
         canvas = Image.new("RGBA", (vid_w, vid_h), (0, 0, 0, 0))
         opacity = _fade_opacity(t, dur)
@@ -901,14 +912,11 @@ def style_popin(poster_data, grid, vid_w, vid_h):
             scaled = img.resize((new_w, new_h), Image.LANCZOS)
             _paste_with_alpha(canvas, scaled, fx + w // 2, cy, opacity)
 
-            if CFG["SHOW_RELEASE_DATE"] and date:
-                txt = make_text_image(date, CFG["RELEASE_DATE_SIZE"],
-                                      CFG["RELEASE_DATE_COLOR"], CFG["RELEASE_DATE_SHADOW"],
-                                      CFG["RELEASE_DATE_BG_COLOR"], CFG["RELEASE_DATE_BG_OPACITY"])
-                if t_off >= POP_DURATION:
-                    txt_cy = bottom_y + 6 + txt.height // 2 + int(
-                        amp * math.sin(2 * math.pi * speed * (t_off - POP_DURATION) + phase))
-                    _paste_with_alpha(canvas, txt, center_x, txt_cy, opacity)
+            txt = date_imgs[i]
+            if txt is not None and t_off >= POP_DURATION:
+                txt_cy = bottom_y + 6 + txt.height // 2 + int(
+                    amp * math.sin(2 * math.pi * speed * (t_off - POP_DURATION) + phase))
+                _paste_with_alpha(canvas, txt, center_x, txt_cy, opacity)
 
         return np.array(canvas)
 
@@ -1424,6 +1432,20 @@ def run_job(video_path: Path, yaml_path: Path):
     print(f"  Output:    {out_path.name}")
     print(f"  Posters:   {n}  layout={layout}  start={CFG['START_TIME']}s  show={CFG['POSTER_DURATION']}s")
     print(f"  Font:      {CFG['FONT']}")
+
+    # Animation style + relevant parameters
+    style = CFG.get("ANIMATION_STYLE", "bounce").lower().strip()
+    style_params = {
+        "bounce":    f"amplitude={CFG['FLOAT_AMPLITUDE']}  speed={CFG['FLOAT_SPEED']}",
+        "fade":      "",
+        "wave":      f"stagger={os.getenv('WAVE_STAGGER', '0.3')}s",
+        "pop-in":    f"scale={os.getenv('POPIN_SCALE','2.5')}x  duration={os.getenv('POPIN_DURATION','1.0')}s  stagger={os.getenv('POPIN_STAGGER','0.3')}s",
+        "carousel":  f"rx={os.getenv('CAROUSEL_RX','0.32')}  ry={os.getenv('CAROUSEL_RY','0.06')}  scale={os.getenv('CAROUSEL_MIN_SCALE','0.45')}–{os.getenv('CAROUSEL_MAX_SCALE','1.0')}",
+        "spotlight": f"size={os.getenv('SPOTLIGHT_SIZE','0.35')}  breathe={os.getenv('SPOTLIGHT_BREATHE','0.03')}",
+        "drift":     f"speed={os.getenv('DRIFT_SPEED','30')}px/s  dir={os.getenv('DRIFT_DIRECTION','left')}",
+    }
+    params_str = style_params.get(style, "")
+    print(f"  Style:     {style}" + (f"  ({params_str})" if params_str else ""))
     print(f"  Date: {'on' if CFG['SHOW_RELEASE_DATE'] else 'off'}"
           f"   Bottom: {'on' if CFG['BOTTOM_MESSAGE_SHOW'] else 'off'}"
           f"   Top: {'on' if CFG['TOP_MESSAGE_SHOW'] else 'off'}")
