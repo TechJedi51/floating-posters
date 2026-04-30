@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-floating_posters.py  —  v2.2.1
+floating_posters.py  —  v2.2.2
 ────────────────────────────────────────────────────────────────
 Scans /input for video files. Each video must have a matching
 .yaml file in the same directory that defines all settings.
@@ -38,7 +38,7 @@ except ImportError:
     sys.exit(1)
 
 
-VERSION = "2.2.1"
+VERSION = "2.2.2"
 
 # ══════════════════════════════════════════════════════════════
 #  GLOBAL ENV — connection / quality settings, never from yaml
@@ -1019,25 +1019,39 @@ def style_carousel(poster_data, grid, vid_w, vid_h):
 
 def style_spotlight(poster_data, grid, vid_w, vid_h):
     """
-    Full grid of static posters is always visible.
-    A spotlight randomly visits each poster once — the focused poster
-    scales up slightly while all others dim.  Each poster gets equal time.
+    Full grid always visible. A soft searchlight (dark overlay with an
+    elliptical illuminated hole) travels between poster positions in
+    random order, dwelling on each one equally.  The spotlight smoothly
+    interpolates between positions using a smoothstep curve.
     """
-    start     = CFG["START_TIME"]
-    dur       = CFG["POSTER_DURATION"]
-    n         = len(grid)
-    slot_dur  = dur / n
-    xfade     = min(CFG["FADE_DURATION"] * 0.5, slot_dur * 0.25)
-    SPOT_SCALE= float(os.getenv("SPOTLIGHT_SCALE",  "1.20"))  # focused poster scale
-    DIM_LEVEL = float(os.getenv("SPOTLIGHT_DIM",    "0.30"))  # non-focused opacity
+    start    = CFG["START_TIME"]
+    dur      = CFG["POSTER_DURATION"]
+    n        = len(grid)
+    slot_dur = dur / n
+    xfade    = min(CFG["FADE_DURATION"] * 0.6, slot_dur * 0.3)
 
-    # Random visit order — every poster focused exactly once
+    # ── Tuning ────────────────────────────────────────────────
+    DARKNESS  = int(float(os.getenv("SPOTLIGHT_DARKNESS", "190")))  # 0=off  255=black
+    SPOT_PAD  = float(os.getenv("SPOTLIGHT_PAD",  "1.4"))  # spotlight radius vs poster size
+    INNER     = float(os.getenv("SPOTLIGHT_INNER","0.55"))  # fraction of radius fully lit
+
+    # Random visit order — every poster exactly once
     visit_order = list(range(n))
     random.shuffle(visit_order)
 
-    # Pre-render date labels
+    # Pre-compute poster centers and spotlight radii from grid positions
+    centers = []
+    for (img, date, fx, fy, cx, by, phase) in grid:
+        centers.append({
+            "cx": float(fx + img.width  // 2),
+            "cy": float(fy + img.height // 2),
+            "rx": img.width  * SPOT_PAD / 2.0,
+            "ry": img.height * SPOT_PAD / 2.0,
+        })
+
+    # Pre-render date labels (never call make_text_image inside make_rgba)
     date_imgs = []
-    for _, (img, date, fx, fy, center_x, bottom_y, phase) in zip(poster_data, grid):
+    for (img, date, fx, fy, cx, by, phase) in grid:
         if CFG["SHOW_RELEASE_DATE"] and date:
             date_imgs.append(make_text_image(
                 date, CFG["RELEASE_DATE_SIZE"], CFG["RELEASE_DATE_COLOR"],
@@ -1046,61 +1060,78 @@ def style_spotlight(poster_data, grid, vid_w, vid_h):
         else:
             date_imgs.append(None)
 
-    print(f"  [spotlight] visit order: {[visit_order[i] for i in range(n)]}  "
-          f"slot={slot_dur:.2f}s  scale={SPOT_SCALE}x  dim={DIM_LEVEL}")
+    # Pre-build numpy pixel-coordinate grids — do this ONCE outside make_rgba
+    yy_np, xx_np = np.mgrid[0:vid_h, 0:vid_w].astype(np.float32)
 
-    def make_rgba(t):
+    visit_str = [visit_order[i] for i in range(n)]
+    print(f"  [spotlight] order={visit_str}  slot={slot_dur:.2f}s  "
+          f"darkness={DARKNESS}  pad={SPOT_PAD}x")
+
+    def _smoothstep(x: float) -> float:
+        x = max(0.0, min(1.0, x))
+        return x * x * (3.0 - 2.0 * x)
+
+    def _lerp(a: dict, b: dict, t: float) -> dict:
+        s = _smoothstep(t)
+        return {k: a[k] + (b[k] - a[k]) * s for k in a}
+
+    def _spot_pos(t: float) -> dict:
+        """Smoothly interpolated spotlight position at global time t."""
+        slot_idx = min(int(t / slot_dur), n - 1)
+        slot_t   = t - slot_idx * slot_dur
+        curr     = centers[visit_order[slot_idx]]
+
+        # Travelling toward next poster in the last xfade of the slot
+        if slot_t > slot_dur - xfade and slot_idx < n - 1:
+            nxt   = centers[visit_order[slot_idx + 1]]
+            prog  = (slot_t - (slot_dur - xfade)) / xfade
+            return _lerp(curr, nxt, prog)
+
+        # Arriving from previous poster in the first xfade of the slot
+        if slot_t < xfade and slot_idx > 0:
+            prev  = centers[visit_order[slot_idx - 1]]
+            prog  = slot_t / xfade
+            return _lerp(prev, curr, prog)
+
+        return curr
+
+    def make_rgba(t: float) -> np.ndarray:
         canvas  = Image.new("RGBA", (vid_w, vid_h), (0, 0, 0, 0))
         overall = _fade_opacity(t, dur)
 
-        # Which slot are we in and how far through it?
-        slot_idx  = min(int(t / slot_dur), n - 1)
-        slot_t    = t - slot_idx * slot_dur
-        focused_i = visit_order[slot_idx]
-
-        # Crossfade progress for the spotlight (0→1→1→0 within a slot)
-        if slot_t < xfade:
-            spot_prog = slot_t / xfade
-        elif slot_t > slot_dur - xfade:
-            spot_prog = max(0.0, (slot_dur - slot_t) / xfade)
-        else:
-            spot_prog = 1.0
-
-        # ── Pass 1: draw all posters at base opacity ──────────────
-        for i, (d, (img, date, fx, fy, center_x, bottom_y, phase)) in                 enumerate(zip(poster_data, grid)):
-            if i == focused_i:
-                # Focused poster drawn in pass 2
-                continue
-            # Dim non-focused posters as spotlight comes in
-            dim = 1.0 - (1.0 - DIM_LEVEL) * spot_prog
-            _paste_with_alpha(canvas, img, fx + img.width // 2,
-                              fy + img.height // 2, overall * dim)
-
-            txt = date_imgs[i]
-            if txt is not None:
-                _paste_with_alpha(canvas, txt, center_x,
-                                  bottom_y + 6 + txt.height // 2, overall * dim)
-
-        # ── Pass 2: draw focused poster scaled up on top ──────────
-        fimg = poster_data[focused_i]["img"]
-        _, (fimg_g, fdate, ffx, ffy, fcx, fby, fphase) =             list(zip(poster_data, grid))[focused_i]
-
-        scale  = 1.0 + (SPOT_SCALE - 1.0) * spot_prog
-        new_w  = max(1, int(fimg.width  * scale))
-        new_h  = max(1, int(fimg.height * scale))
-        scaled = fimg.resize((new_w, new_h), Image.LANCZOS)
-        _paste_with_alpha(canvas, scaled,
-                          ffx + fimg.width // 2,
-                          ffy + fimg.height // 2, overall)
-
-        ftxt = date_imgs[focused_i]
-        if ftxt is not None:
-            ftw = max(1, int(ftxt.width  * scale))
-            fth = max(1, int(ftxt.height * scale))
-            fts = ftxt.resize((ftw, fth), Image.LANCZOS)
-            _paste_with_alpha(canvas, fts, fcx,
-                              fby + 6 + fth // 2 + int((new_h - fimg.height) / 2),
+        # ── Draw full grid ─────────────────────────────────────
+        for i, (d, (img, date, fx, fy, cx, by, phase)) in                 enumerate(zip(poster_data, grid)):
+            _paste_with_alpha(canvas, img,
+                              fx + img.width  // 2,
+                              fy + img.height // 2,
                               overall)
+            if date_imgs[i] is not None:
+                txt = date_imgs[i]
+                _paste_with_alpha(canvas, txt, cx,
+                                  by + 6 + txt.height // 2,
+                                  overall)
+
+        # ── Dark overlay with soft elliptical spotlight hole ───
+        pos = _spot_pos(t)
+        scx, scy = pos["cx"], pos["cy"]
+        srx, sry = pos["rx"], pos["ry"]
+
+        # Normalised elliptical distance (0 = centre, 1 = edge of spotlight)
+        dist = np.sqrt(((xx_np - scx) / srx) ** 2 +
+                       ((yy_np - scy) / sry) ** 2)
+
+        # Smoothstep penumbra: 1.0 fully lit inside, 0.0 fully dark outside
+        penumbra  = np.clip((dist - INNER) / (1.0 - INNER), 0.0, 1.0)
+        spot_mask = 1.0 - (3.0 * penumbra ** 2 - 2.0 * penumbra ** 3)
+
+        # Overlay alpha: dark everywhere except spotlight hole
+        ov_alpha = (DARKNESS * overall * (1.0 - spot_mask)).clip(0, 255).astype(np.uint8)
+
+        overlay        = np.zeros((vid_h, vid_w, 4), dtype=np.uint8)
+        overlay[:, :, 3] = ov_alpha          # black overlay, variable alpha
+
+        ov_img = Image.fromarray(overlay, "RGBA")
+        canvas.paste(ov_img, (0, 0), ov_img)
 
         return np.array(canvas)
 
@@ -1473,7 +1504,7 @@ def run_job(video_path: Path, yaml_path: Path):
         "wave":      f"stagger={os.getenv('WAVE_STAGGER', '0.3')}s",
         "pop-in":    f"scale={os.getenv('POPIN_SCALE','2.5')}x  duration={os.getenv('POPIN_DURATION','1.0')}s  stagger={os.getenv('POPIN_STAGGER','0.3')}s",
         "carousel":  f"rx={os.getenv('CAROUSEL_RX','0.32')}  ry={os.getenv('CAROUSEL_RY','0.06')}  scale={os.getenv('CAROUSEL_MIN_SCALE','0.45')}–{os.getenv('CAROUSEL_MAX_SCALE','1.0')}",
-        "spotlight": f"scale={os.getenv('SPOTLIGHT_SCALE','1.20')}x  dim={os.getenv('SPOTLIGHT_DIM','0.30')}",
+        "spotlight": f"darkness={os.getenv('SPOTLIGHT_DARKNESS','190')}  pad={os.getenv('SPOTLIGHT_PAD','1.4')}x  inner={os.getenv('SPOTLIGHT_INNER','0.55')}",
         "drift":     f"dir={os.getenv('DRIFT_DIRECTION','left')}",
     }
     params_str = style_params.get(style, "")

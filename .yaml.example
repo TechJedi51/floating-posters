@@ -101,8 +101,9 @@ movie:
   # - CAROUSEL_MAX_SCALE=1.0     # scale of front poster
 
   # ── Spotlight settings ────────────────────────────────────────
-  # - SPOTLIGHT_SCALE=1.20       # focused poster scale factor (1.0 = no zoom)
-  # - SPOTLIGHT_DIM=0.30         # opacity of non-focused posters (0.0–1.0)
+  # - SPOTLIGHT_DARKNESS=190     # overlay darkness 0=off  255=solid black
+  # - SPOTLIGHT_PAD=1.4          # spotlight radius as multiple of poster size
+  # - SPOTLIGHT_INNER=0.55       # fraction of radius that is fully lit (0–1)
 
   # ── Drift settings ────────────────────────────────────────────
   # - DRIFT_DIRECTION=left       # left | right (one poster at a time)
