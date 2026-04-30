@@ -1473,8 +1473,8 @@ def run_job(video_path: Path, yaml_path: Path):
         "wave":      f"stagger={os.getenv('WAVE_STAGGER', '0.3')}s",
         "pop-in":    f"scale={os.getenv('POPIN_SCALE','2.5')}x  duration={os.getenv('POPIN_DURATION','1.0')}s  stagger={os.getenv('POPIN_STAGGER','0.3')}s",
         "carousel":  f"rx={os.getenv('CAROUSEL_RX','0.32')}  ry={os.getenv('CAROUSEL_RY','0.06')}  scale={os.getenv('CAROUSEL_MIN_SCALE','0.45')}–{os.getenv('CAROUSEL_MAX_SCALE','1.0')}",
-        "spotlight": f"size={os.getenv('SPOTLIGHT_SIZE','0.35')}  breathe={os.getenv('SPOTLIGHT_BREATHE','0.03')}",
-        "drift":     f"speed={os.getenv('DRIFT_SPEED','30')}px/s  dir={os.getenv('DRIFT_DIRECTION','left')}",
+        "spotlight": f"scale={os.getenv('SPOTLIGHT_SCALE','1.20')}x  dim={os.getenv('SPOTLIGHT_DIM','0.30')}",
+        "drift":     f"dir={os.getenv('DRIFT_DIRECTION','left')}",
     }
     params_str = style_params.get(style, "")
     print(f"  Style:     {style}" + (f"  ({params_str})" if params_str else ""))
