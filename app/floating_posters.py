@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-floating_posters.py  —  v2.1.1
+floating_posters.py  —  v2.2.0
 ────────────────────────────────────────────────────────────────
 Scans /input for video files. Each video must have a matching
 .yaml file in the same directory that defines all settings.
@@ -38,7 +38,7 @@ except ImportError:
     sys.exit(1)
 
 
-VERSION = "2.1.1"
+VERSION = "2.2.0"
 
 # ══════════════════════════════════════════════════════════════
 #  GLOBAL ENV — connection / quality settings, never from yaml
