@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-floating_posters.py  —  v2.2.0
+floating_posters.py  —  v2.2.1
 ────────────────────────────────────────────────────────────────
 Scans /input for video files. Each video must have a matching
 .yaml file in the same directory that defines all settings.
@@ -38,7 +38,7 @@ except ImportError:
     sys.exit(1)
 
 
-VERSION = "2.2.0"
+VERSION = "2.2.1"
 
 # ══════════════════════════════════════════════════════════════
 #  GLOBAL ENV — connection / quality settings, never from yaml
@@ -800,61 +800,81 @@ def style_wave(poster_data, grid, vid_w, vid_h):
 
 def style_drift(poster_data, grid, vid_w, vid_h):
     """
-    Entire grid drifts slowly left (or right) while fading in/out.
-    DRIFT_SPEED pixels/second.  DRIFT_DIRECTION: left | right
+    One poster at a time travels across the screen.
+    Posters enter from one side and exit the other, each getting an equal
+    share of POSTER_DURATION.  DRIFT_DIRECTION: left | right
     """
-    clips     = []
-    speed     = float(os.getenv("DRIFT_SPEED",     "30"))
     direction = os.getenv("DRIFT_DIRECTION", "left")
     sign      = -1 if direction == "left" else 1
-    start     = CFG["START_TIME"]
-    dur       = CFG["POSTER_DURATION"]
+    n         = len(grid)
+    total_dur = CFG["POSTER_DURATION"]
+    slot_dur  = total_dur / n
+    fade      = min(CFG["FADE_DURATION"], slot_dur * 0.25)
+    base_start= CFG["START_TIME"]
+    cy        = int(vid_h * CFG["VERTICAL_POS"])
 
-    for d, (img, date, fx, fy, center_x, bottom_y, phase) in zip(poster_data, grid):
-        def x_fn(t, _fx=fx):
-            return _fx + sign * speed * t
+    # Pre-render date labels
+    date_imgs = []
+    for _, (img, date, fx, fy, center_x, bottom_y, phase) in zip(poster_data, grid):
+        if CFG["SHOW_RELEASE_DATE"] and date:
+            date_imgs.append(make_text_image(
+                date, CFG["RELEASE_DATE_SIZE"], CFG["RELEASE_DATE_COLOR"],
+                CFG["RELEASE_DATE_SHADOW"], CFG["RELEASE_DATE_BG_COLOR"],
+                CFG["RELEASE_DATE_BG_OPACITY"]))
+        else:
+            date_imgs.append(None)
 
-        def y_fn(t, _fy=fy):
-            return _fy
+    clips = []
+    for i, (d, (img, date, fx, fy, center_x, bottom_y, phase)) in             enumerate(zip(poster_data, grid)):
+        w, h   = img.width, img.height
+        # Travel distance: full screen width + poster width so it fully enters and exits
+        travel = vid_w + w
+        speed  = travel / slot_dur
 
-        def pos_fn(t, _fx=fx, _fy=fy):
-            return (int(_fx + sign * speed * t), _fy)
+        # Entry x: just off the entering edge; exits off the opposite edge
+        if sign == -1:   # moving left: enters from right
+            entry_x = vid_w
+        else:            # moving right: enters from left
+            entry_x = -w
 
-        # drift clip: override position
+        start  = base_start + i * slot_dur
+        poster_y = cy - h // 2
+
         arr   = np.array(img.convert("RGBA"))
         rgb   = arr[:, :, :3]
         alpha = arr[:, :, 3] / 255.0
         clip  = ImageClip(rgb)
 
-        def mask_frame(t, _alpha=alpha):
-            return _alpha * _fade_opacity(t, dur)
+        def mask_fn(t, _a=alpha, _fade=fade, _dur=slot_dur):
+            return _a * _fade_opacity(t, _dur)
 
-        def _pos(t, _fx=fx, _fy=fy):
-            return (int(_fx + sign * speed * t), _fy)
+        def pos_fn(t, _ex=entry_x, _py=poster_y, _sign=sign, _speed=speed):
+            return (int(_ex + _sign * _speed * t), _py)
 
-        mask = VideoClip(mask_frame, ismask=True, duration=dur)
+        mask = VideoClip(mask_fn, ismask=True, duration=slot_dur)
         clips.append(
-            clip.set_mask(mask).set_start(start).set_duration(dur).set_position(_pos)
+            clip.set_mask(mask).set_start(start).set_duration(slot_dur).set_position(pos_fn)
         )
 
-        if CFG["SHOW_RELEASE_DATE"] and date:
-            txt   = make_text_image(date, CFG["RELEASE_DATE_SIZE"],
-                                    CFG["RELEASE_DATE_COLOR"], CFG["RELEASE_DATE_SHADOW"],
-                                    CFG["RELEASE_DATE_BG_COLOR"], CFG["RELEASE_DATE_BG_OPACITY"])
+        txt = date_imgs[i]
+        if txt is not None:
             tarr  = np.array(txt.convert("RGBA"))
-            trgb  = tarr[:, :, :3]
+            tclip = ImageClip(tarr[:, :, :3])
             talpha= tarr[:, :, 3] / 255.0
-            tclip = ImageClip(trgb)
-            tmask = VideoClip(lambda t, _a=talpha: _a * _fade_opacity(t, dur),
-                              ismask=True, duration=dur)
-            txt_x0 = center_x - txt.width // 2
+            tmask = VideoClip(lambda t, _a=talpha, _dur=slot_dur: _a * _fade_opacity(t, _dur),
+                              ismask=True, duration=slot_dur)
+            txt_gap = poster_y + h + 6
 
-            def _tpos(t, _x=txt_x0, _y=bottom_y+6):
-                return (int(_x + sign * speed * t), _y)
+            def tpos_fn(t, _ex=entry_x, _w=w, _tw=txt.width,
+                        _py=txt_gap, _sign=sign, _speed=speed):
+                # Keep date centred under poster as it moves
+                poster_cx = _ex + _sign * _speed * t + _w // 2
+                return (int(poster_cx - _tw // 2), _py)
 
             clips.append(
-                tclip.set_mask(tmask).set_start(start).set_duration(dur).set_position(_tpos)
+                tclip.set_mask(tmask).set_start(start).set_duration(slot_dur).set_position(tpos_fn)
             )
+
     return clips
 
 
@@ -999,25 +1019,25 @@ def style_carousel(poster_data, grid, vid_w, vid_h):
 
 def style_spotlight(poster_data, grid, vid_w, vid_h):
     """
-    One poster at a time, large and centred.  Each gets equal screen time,
-    crossfading into the next.  The poster scales slightly (gentle breathe).
+    Full grid of static posters is always visible.
+    A spotlight randomly visits each poster once — the focused poster
+    scales up slightly while all others dim.  Each poster gets equal time.
     """
     start     = CFG["START_TIME"]
     dur       = CFG["POSTER_DURATION"]
-    fade      = CFG["FADE_DURATION"]
-    n         = len(poster_data)
+    n         = len(grid)
     slot_dur  = dur / n
-    xfade     = min(fade, slot_dur * 0.3)   # crossfade overlap
-    cx        = vid_w // 2
-    cy        = int(vid_h * CFG["VERTICAL_POS"])
-    w_max     = int(vid_w * float(os.getenv("SPOTLIGHT_SIZE", "0.35")))
-    breathe   = float(os.getenv("SPOTLIGHT_BREATHE", "0.03"))  # scale oscillation
+    xfade     = min(CFG["FADE_DURATION"] * 0.5, slot_dur * 0.25)
+    SPOT_SCALE= float(os.getenv("SPOTLIGHT_SCALE",  "1.20"))  # focused poster scale
+    DIM_LEVEL = float(os.getenv("SPOTLIGHT_DIM",    "0.30"))  # non-focused opacity
 
-    imgs   = [d["img"]  for d in poster_data]
-    dates  = [d["date"] for d in poster_data]
+    # Random visit order — every poster focused exactly once
+    visit_order = list(range(n))
+    random.shuffle(visit_order)
 
+    # Pre-render date labels
     date_imgs = []
-    for date in dates:
+    for _, (img, date, fx, fy, center_x, bottom_y, phase) in zip(poster_data, grid):
         if CFG["SHOW_RELEASE_DATE"] and date:
             date_imgs.append(make_text_image(
                 date, CFG["RELEASE_DATE_SIZE"], CFG["RELEASE_DATE_COLOR"],
@@ -1026,49 +1046,61 @@ def style_spotlight(poster_data, grid, vid_w, vid_h):
         else:
             date_imgs.append(None)
 
-    # Pre-scale each poster to spotlight width
-    scaled_imgs = []
-    for img in imgs:
-        aspect = img.height / img.width
-        sw = w_max
-        sh = int(sw * aspect)
-        scaled_imgs.append(img.resize((sw, sh), Image.LANCZOS))
+    print(f"  [spotlight] visit order: {[visit_order[i] for i in range(n)]}  "
+          f"slot={slot_dur:.2f}s  scale={SPOT_SCALE}x  dim={DIM_LEVEL}")
 
     def make_rgba(t):
         canvas  = Image.new("RGBA", (vid_w, vid_h), (0, 0, 0, 0))
         overall = _fade_opacity(t, dur)
 
-        for i in range(n):
-            slot_start = i * slot_dur
-            slot_end   = slot_start + slot_dur
-            # Local time within this slot
-            lt = t - slot_start
-            if lt < -xfade or lt > slot_dur + xfade:
+        # Which slot are we in and how far through it?
+        slot_idx  = min(int(t / slot_dur), n - 1)
+        slot_t    = t - slot_idx * slot_dur
+        focused_i = visit_order[slot_idx]
+
+        # Crossfade progress for the spotlight (0→1→1→0 within a slot)
+        if slot_t < xfade:
+            spot_prog = slot_t / xfade
+        elif slot_t > slot_dur - xfade:
+            spot_prog = max(0.0, (slot_dur - slot_t) / xfade)
+        else:
+            spot_prog = 1.0
+
+        # ── Pass 1: draw all posters at base opacity ──────────────
+        for i, (d, (img, date, fx, fy, center_x, bottom_y, phase)) in                 enumerate(zip(poster_data, grid)):
+            if i == focused_i:
+                # Focused poster drawn in pass 2
                 continue
-            # Crossfade opacity
-            if lt < xfade:
-                alpha_s = lt / xfade
-            elif lt > slot_dur - xfade:
-                alpha_s = max(0.0, (slot_dur - lt) / xfade)
-            else:
-                alpha_s = 1.0
+            # Dim non-focused posters as spotlight comes in
+            dim = 1.0 - (1.0 - DIM_LEVEL) * spot_prog
+            _paste_with_alpha(canvas, img, fx + img.width // 2,
+                              fy + img.height // 2, overall * dim)
 
-            op = overall * alpha_s
-            if op <= 0:
-                continue
+            txt = date_imgs[i]
+            if txt is not None:
+                _paste_with_alpha(canvas, txt, center_x,
+                                  bottom_y + 6 + txt.height // 2, overall * dim)
 
-            img = scaled_imgs[i]
-            # Gentle breathing scale
-            sc = 1.0 + breathe * math.sin(2 * math.pi * 0.4 * (t - slot_start))
-            new_w = max(1, int(img.width  * sc))
-            new_h = max(1, int(img.height * sc))
-            simg  = img.resize((new_w, new_h), Image.LANCZOS)
-            _paste_with_alpha(canvas, simg, cx, cy, op)
+        # ── Pass 2: draw focused poster scaled up on top ──────────
+        fimg = poster_data[focused_i]["img"]
+        _, (fimg_g, fdate, ffx, ffy, fcx, fby, fphase) =             list(zip(poster_data, grid))[focused_i]
 
-            if date_imgs[i]:
-                txt = date_imgs[i]
-                ty  = cy + new_h // 2 + txt.height // 2 + 8
-                _paste_with_alpha(canvas, txt, cx, ty, op)
+        scale  = 1.0 + (SPOT_SCALE - 1.0) * spot_prog
+        new_w  = max(1, int(fimg.width  * scale))
+        new_h  = max(1, int(fimg.height * scale))
+        scaled = fimg.resize((new_w, new_h), Image.LANCZOS)
+        _paste_with_alpha(canvas, scaled,
+                          ffx + fimg.width // 2,
+                          ffy + fimg.height // 2, overall)
+
+        ftxt = date_imgs[focused_i]
+        if ftxt is not None:
+            ftw = max(1, int(ftxt.width  * scale))
+            fth = max(1, int(ftxt.height * scale))
+            fts = ftxt.resize((ftw, fth), Image.LANCZOS)
+            _paste_with_alpha(canvas, fts, fcx,
+                              fby + 6 + fth // 2 + int((new_h - fimg.height) / 2),
+                              overall)
 
         return np.array(canvas)
 
