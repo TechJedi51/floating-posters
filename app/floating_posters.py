@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-floating_posters.py  —  v2.2.2
+floating_posters.py  —  v2.2.3
 ────────────────────────────────────────────────────────────────
 Scans /input for video files. Each video must have a matching
 .yaml file in the same directory that defines all settings.
@@ -38,7 +38,7 @@ except ImportError:
     sys.exit(1)
 
 
-VERSION = "2.2.2"
+VERSION = "2.2.3"
 
 # ══════════════════════════════════════════════════════════════
 #  GLOBAL ENV — connection / quality settings, never from yaml
@@ -1076,23 +1076,22 @@ def style_spotlight(poster_data, grid, vid_w, vid_h):
         return {k: a[k] + (b[k] - a[k]) * s for k in a}
 
     def _spot_pos(t: float) -> dict:
-        """Smoothly interpolated spotlight position at global time t."""
+        """
+        Spotlight position at global time t.
+        Dwells on the current poster, then smoothly travels to the next
+        at the START of each new slot.  Only one move per transition.
+        """
         slot_idx = min(int(t / slot_dur), n - 1)
         slot_t   = t - slot_idx * slot_dur
         curr     = centers[visit_order[slot_idx]]
 
-        # Travelling toward next poster in the last xfade of the slot
-        if slot_t > slot_dur - xfade and slot_idx < n - 1:
-            nxt   = centers[visit_order[slot_idx + 1]]
-            prog  = (slot_t - (slot_dur - xfade)) / xfade
-            return _lerp(curr, nxt, prog)
-
-        # Arriving from previous poster in the first xfade of the slot
+        # Arriving from previous poster — interpolate only at START of slot
         if slot_t < xfade and slot_idx > 0:
-            prev  = centers[visit_order[slot_idx - 1]]
-            prog  = slot_t / xfade
+            prev = centers[visit_order[slot_idx - 1]]
+            prog = slot_t / xfade
             return _lerp(prev, curr, prog)
 
+        # Otherwise dwell on the current poster
         return curr
 
     def make_rgba(t: float) -> np.ndarray:
