@@ -106,7 +106,11 @@ movie:
   # - SPOTLIGHT_INNER=0.55       # fraction of radius that is fully lit (0–1)
 
   # ── Drift settings ────────────────────────────────────────────
-  # - DRIFT_DIRECTION=left       # left | right (one poster at a time)
+  # - DRIFT_DIRECTION=left       # left | right
+  # - DRIFT_SPACING=0.40         # overlap factor: lower = more posters on screen at once
+  # - DRIFT_ENTER=0.30           # fraction of slot for entry (edge → centre)
+  # - DRIFT_PAUSE=0.22           # fraction of slot paused at centre
+  # (exit fraction = 1 - DRIFT_ENTER - DRIFT_PAUSE)
 
   # ── NeXroll registration ─────────────────────────────────────
   # Registers the rendered video with NeXroll after a successful render.
