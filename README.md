@@ -1,4 +1,4 @@
-# 🎬 floating-posters  `v2.1.0`
+# 🎬 floating-posters  `v2.2.5`
 
 A Docker container that fetches upcoming movie and TV posters from **Radarr** and **Sonarr**, and composites them as **floating, animated overlays** onto background videos — ready to drop into [NeXroll](https://github.com/JFLXCLOUD/NeXroll) as Plex prerolls.
 
@@ -268,7 +268,7 @@ With this setup there is no need for `NEXROLL_OUTPUT_PATH` to translate between 
 
 **`NEXROLL_OUTPUT_PATH` in standalone mode:** If floating-posters and NeXroll are in separate stacks (not sharing a volume), `NEXROLL_OUTPUT_PATH` must be set to the host filesystem path that NeXroll can access. For example if your volume is `- /mnt/media/prerolls:/output`, set `NEXROLL_OUTPUT_PATH=/mnt/media/prerolls`.
 
-### Animation style *(new in v2.1.0)*
+### Animation style
 
 | Setting | Default | Description |
 |---|---|---|
@@ -281,10 +281,10 @@ With this setup there is no need for `NEXROLL_OUTPUT_PATH` to translate between 
 | `wave` | Posters cascade in left-to-right with staggered delay |
 | `pop-in` | Each poster scales from large down to grid size, staggered |
 | `carousel` | Elliptical orbit with depth-based scaling (3-D feel) |
-| `spotlight` | One poster at a time, large & centred, cycling through all |
-| `drift` | Entire grid drifts slowly left or right while fading |
+| `spotlight` | Full grid visible with a soft searchlight that moves between posters in random order |
+| `drift` | One poster at a time travels across the screen; 6+ posters use two staggered rows |
 
-Each style has optional fine-tuning settings — see `.yaml.example` for the full list (`WAVE_STAGGER`, `POPIN_SCALE`, `CAROUSEL_RX`, `SPOTLIGHT_SIZE`, `DRIFT_SPEED`, etc.).
+Each style has optional fine-tuning settings — see `.yaml.example` for the full list (`WAVE_STAGGER`, `POPIN_SCALE`, `CAROUSEL_RX`, `SPOTLIGHT_DARKNESS`, `DRIFT_SPACING`, etc.).
 
 ### Float animation
 
@@ -426,11 +426,37 @@ docker run --rm \
 On every push to `main`, GitHub Actions automatically:
 - Builds for `linux/amd64` and `linux/arm64` (Apple Silicon / Unraid)
 - Pushes `ghcr.io/TechJedi51/floating-posters:latest`
-- Tags version releases (`v2.1.0`) as `:2.1.0` and `:2.1`
+- Tags version releases (`v2.2.5`) as `:2.2.5` and `:2.2`
 
 ---
 
 ## Changelog
+
+### v2.2.5
+- **Drift two-row layout**: 6+ posters split into two rows (same split as grid styles); row 2 time-offset by `DRIFT_ROW_OFFSET` so rows stagger at centre rather than hitting simultaneously
+- Added `DRIFT_ROW_OFFSET` tuning var
+
+### v2.2.4
+- **Drift rewritten**: parade flow with overlapping clips — posters ease in from edge, pause at screen centre, ease out; `DRIFT_SPACING` controls overlap; `DRIFT_ENTER`/`DRIFT_PAUSE` control timing fractions; `slot_dur` derived from `POSTER_DURATION` so all posters always fit
+- Replaced linear constant-speed movement with smoothstep easing
+
+### v2.2.3
+- Fixed spotlight double-move at slot boundary — removed the duplicate "departing" lerp branch; spotlight now dwells and moves only once per transition
+
+### v2.2.2
+- **Spotlight rewritten**: full grid always visible; dark semi-transparent overlay with a soft elliptical "searchlight hole" that travels between poster positions in random order
+- Smooth smoothstep interpolation between poster centres; numpy pixel grid pre-computed once outside the frame loop for performance
+- New tuning vars: `SPOTLIGHT_DARKNESS`, `SPOTLIGHT_PAD`, `SPOTLIGHT_INNER`; old `SPOTLIGHT_SIZE`/`SPOTLIGHT_BREATHE`/`SPOTLIGHT_SCALE`/`SPOTLIGHT_DIM` removed
+
+### v2.2.1
+- Fixed pop-in date label spam — `make_text_image` was being called inside the `make_rgba` frame closure (once per poster per frame); date images now pre-rendered before the closure like carousel and spotlight
+- Added animation style + parameters to the run_job log header
+
+### v2.2.0
+- Start of v2.2.x beta cycle — animation styles feature set stabilised
+
+### v2.1.1
+- Fixed version consistency — README title and script docstring both updated alongside the `VERSION` constant
 
 ### v2.1.0
 - **7 animation styles**: `bounce` (original), `fade`, `wave`, `pop-in`, `carousel`, `spotlight`, `drift` — selected per-video via `ANIMATION_STYLE` in the yaml
