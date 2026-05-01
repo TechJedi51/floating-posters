@@ -110,6 +110,7 @@ movie:
   # - DRIFT_SPACING=0.40         # overlap factor: lower = more posters on screen at once
   # - DRIFT_ENTER=0.30           # fraction of slot for entry (edge → centre)
   # - DRIFT_PAUSE=0.22           # fraction of slot paused at centre
+  # - DRIFT_ROW_OFFSET=0.5       # row 2 time offset as multiple of spacing_delay (6+ posters)
   # (exit fraction = 1 - DRIFT_ENTER - DRIFT_PAUSE)
 
   # ── NeXroll registration ─────────────────────────────────────

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-floating_posters.py  —  v2.2.4
+floating_posters.py  —  v2.2.5
 ────────────────────────────────────────────────────────────────
 Scans /input for video files. Each video must have a matching
 .yaml file in the same directory that defines all settings.
@@ -38,7 +38,7 @@ except ImportError:
     sys.exit(1)
 
 
-VERSION = "2.2.4"
+VERSION = "2.2.5"
 
 # ══════════════════════════════════════════════════════════════
 #  GLOBAL ENV — connection / quality settings, never from yaml
@@ -801,127 +801,150 @@ def style_wave(poster_data, grid, vid_w, vid_h):
 def style_drift(poster_data, grid, vid_w, vid_h):
     """
     Parade of posters moving across the screen one at a time.
-    Posters overlap slightly for an even flow — each eases in from the
-    entry edge, briefly pauses at the screen centre, then eases out.
+    6+ posters split into two rows (same split as the grid styles).
+    Row 2 is time-offset so the rows stagger nicely at centre.
 
     Tuning:
-      DRIFT_DIRECTION  left | right        (default: left)
-      DRIFT_SPACING    0.0–1.0             overlap factor; lower = more on screen at once (default: 0.40)
-      DRIFT_ENTER      fraction for entry  (default: 0.30)
-      DRIFT_PAUSE      fraction for pause  (default: 0.22)
-      (exit fraction = 1 - DRIFT_ENTER - DRIFT_PAUSE)
+      DRIFT_DIRECTION   left | right              (default: left)
+      DRIFT_SPACING     0.0–1.0  overlap factor   (default: 0.40)
+      DRIFT_ENTER       fraction for entry         (default: 0.30)
+      DRIFT_PAUSE       fraction for pause         (default: 0.22)
+      DRIFT_ROW_OFFSET  row 2 time offset as multiple of spacing_delay (default: 0.5)
     """
-    direction   = os.getenv("DRIFT_DIRECTION", "left")
-    sign        = -1 if direction == "left" else 1
-    SPACING     = float(os.getenv("DRIFT_SPACING", "0.40"))
-    ENTER_FRAC  = float(os.getenv("DRIFT_ENTER",   "0.30"))
-    PAUSE_FRAC  = float(os.getenv("DRIFT_PAUSE",   "0.22"))
-    EXIT_FRAC   = max(0.05, 1.0 - ENTER_FRAC - PAUSE_FRAC)
+    direction    = os.getenv("DRIFT_DIRECTION",  "left")
+    sign         = -1 if direction == "left" else 1
+    SPACING      = float(os.getenv("DRIFT_SPACING",    "0.40"))
+    ENTER_FRAC   = float(os.getenv("DRIFT_ENTER",      "0.30"))
+    PAUSE_FRAC   = float(os.getenv("DRIFT_PAUSE",      "0.22"))
+    EXIT_FRAC    = max(0.05, 1.0 - ENTER_FRAC - PAUSE_FRAC)
+    ROW_OFFSET   = float(os.getenv("DRIFT_ROW_OFFSET", "0.5"))
 
-    n           = len(grid)
-    total_dur   = CFG["POSTER_DURATION"]
-    base_start  = CFG["START_TIME"]
-    cy          = int(vid_h * CFG["VERTICAL_POS"])
-    mid_x       = vid_w / 2.0
+    total_dur    = CFG["POSTER_DURATION"]
+    base_start   = CFG["START_TIME"]
+    cy           = int(vid_h * CFG["VERTICAL_POS"])
+    mid_x        = vid_w / 2.0
+    gap          = CFG["ROW_GAP"]
 
-    # Derive slot_dur so all n posters fit within total_dur with the given spacing
-    # total_dur = slot_dur * (1 + (n-1) * SPACING)
-    slot_dur      = total_dur / (1.0 + (n - 1) * SPACING)
+    # ── Row split ─────────────────────────────────────────────
+    rows   = build_rows(poster_data)
+    n_rows = len(rows)
+
+    # Per-row: how many posters drive the timing formula
+    # Use the longest row so the shorter row finishes within total_dur
+    row_lengths = [len(r) for r in rows]
+    n_driving   = max(row_lengths)
+
+    slot_dur      = total_dur / (1.0 + (n_driving - 1) * SPACING)
     spacing_delay = SPACING * slot_dur
-    edge_fade     = min(0.15, slot_dur * 0.12)   # short pop-on/off at screen edges
+    edge_fade     = min(0.15, slot_dur * 0.12)
 
-    print(f"  [drift] slot={slot_dur:.2f}s  gap={spacing_delay:.2f}s  "
+    # ── Vertical centres ──────────────────────────────────────
+    if n_rows == 1:
+        row_cys        = [cy]
+        row_offsets    = [0.0]
+    else:
+        row_max_h = [max(d["img"].height for d in row) for row in rows]
+        total_h   = sum(row_max_h) + gap * (n_rows - 1)
+        block_top = cy - total_h // 2
+        row_cys   = []
+        y_cursor  = block_top
+        for rh in row_max_h:
+            row_cys.append(y_cursor + rh // 2)
+            y_cursor += rh + gap
+        # Row 2 starts half a spacing_delay later so centres stagger
+        row_offsets = [0.0, spacing_delay * ROW_OFFSET]
+
+    print(f"  [drift] rows={n_rows}  slot={slot_dur:.2f}s  gap={spacing_delay:.2f}s  "
           f"enter={ENTER_FRAC:.0%}  pause={PAUSE_FRAC:.0%}  exit={EXIT_FRAC:.0%}  "
-          f"dir={direction}")
+          f"dir={direction}  row_offset={ROW_OFFSET}")
 
-    # Pre-render date labels once
-    date_imgs = []
-    for _, (img, date, fx, fy, cx, by, phase) in zip(poster_data, grid):
+    # ── Pre-render all date labels ────────────────────────────
+    all_date_imgs = []
+    for d in poster_data:
+        date = d.get("date", "")
         if CFG["SHOW_RELEASE_DATE"] and date:
-            date_imgs.append(make_text_image(
+            all_date_imgs.append(make_text_image(
                 date, CFG["RELEASE_DATE_SIZE"], CFG["RELEASE_DATE_COLOR"],
                 CFG["RELEASE_DATE_SHADOW"], CFG["RELEASE_DATE_BG_COLOR"],
                 CFG["RELEASE_DATE_BG_OPACITY"]))
         else:
-            date_imgs.append(None)
+            all_date_imgs.append(None)
 
     def _smoothstep(x):
         x = max(0.0, min(1.0, x))
         return x * x * (3.0 - 2.0 * x)
 
     def _poster_cx(t, w, slot):
-        """
-        Returns the screen centre-x of the poster at local time t.
-        Journey: entry_cx → mid_x (pause) → exit_cx
-        """
-        u = t / slot   # normalised 0→1
-
-        # Centre positions (poster's own centre, not left edge)
-        if sign == -1:   # moving left
-            entry_cx = vid_w + w / 2.0
-            exit_cx  = -w / 2.0
-        else:             # moving right
-            entry_cx = -w / 2.0
-            exit_cx  = vid_w + w / 2.0
+        """Centre-x of poster at local time t within its slot."""
+        u = t / slot
+        if sign == -1:
+            entry_cx, exit_cx = vid_w + w / 2.0, -w / 2.0
+        else:
+            entry_cx, exit_cx = -w / 2.0, vid_w + w / 2.0
 
         if u <= ENTER_FRAC:
-            p = _smoothstep(u / ENTER_FRAC)
-            return entry_cx + (mid_x - entry_cx) * p
-
+            return entry_cx + (mid_x - entry_cx) * _smoothstep(u / ENTER_FRAC)
         if u <= ENTER_FRAC + PAUSE_FRAC:
             return mid_x
-
         p = _smoothstep((u - ENTER_FRAC - PAUSE_FRAC) / EXIT_FRAC)
         return mid_x + (exit_cx - mid_x) * p
 
-    clips = []
-    for i, (d, (img, date, fx, fy, center_x, bottom_y, phase)) in             enumerate(zip(poster_data, grid)):
-        w, h    = img.width, img.height
-        start   = base_start + i * spacing_delay
-        py      = cy - h // 2
+    # ── Build clips row by row ────────────────────────────────
+    clips      = []
+    global_idx = 0   # index into all_date_imgs
 
-        arr   = np.array(img.convert("RGBA"))
-        rgb   = arr[:, :, :3]
-        alpha = arr[:, :, 3] / 255.0
-        clip  = ImageClip(rgb)
+    for row_i, row in enumerate(rows):
+        row_cy     = row_cys[row_i]
+        time_off   = row_offsets[row_i]
 
-        def mask_fn(t, _a=alpha, _ef=edge_fade, _dur=slot_dur):
-            # Short fade at edges so poster doesn't hard-pop
-            if t < _ef:
-                return _a * (t / _ef)
-            if t > _dur - _ef:
-                return _a * max(0.0, (_dur - t) / _ef)
-            return _a
+        for local_i, d in enumerate(row):
+            img  = d["img"]
+            w, h = img.width, img.height
+            start = base_start + local_i * spacing_delay + time_off
+            py    = row_cy - h // 2
 
-        def pos_fn(t, _w=w, _py=py, _slot=slot_dur):
-            cx = _poster_cx(t, _w, _slot)
-            return (int(cx - _w / 2), _py)
+            arr   = np.array(img.convert("RGBA"))
+            rgb   = arr[:, :, :3]
+            alpha = arr[:, :, 3] / 255.0
+            clip  = ImageClip(rgb)
 
-        mask = VideoClip(mask_fn, ismask=True, duration=slot_dur)
-        clips.append(
-            clip.set_mask(mask).set_start(start).set_duration(slot_dur).set_position(pos_fn)
-        )
+            def mask_fn(t, _a=alpha, _ef=edge_fade, _dur=slot_dur):
+                if t < _ef:
+                    return _a * (t / _ef)
+                if t > _dur - _ef:
+                    return _a * max(0.0, (_dur - t) / _ef)
+                return _a
 
-        txt = date_imgs[i]
-        if txt is not None:
-            tw, th = txt.width, txt.height
-            tarr   = np.array(txt.convert("RGBA"))
-            tclip  = ImageClip(tarr[:, :, :3])
-            talpha = tarr[:, :, 3] / 255.0
-            tmask  = VideoClip(
-                lambda t, _a=talpha, _ef=edge_fade, _dur=slot_dur:
-                    _a * (t / _ef if t < _ef else
-                          max(0.0, (_dur - t) / _ef) if t > _dur - _ef else 1.0),
-                ismask=True, duration=slot_dur)
+            def pos_fn(t, _w=w, _py=py, _slot=slot_dur):
+                return (int(_poster_cx(t, _w, _slot) - _w / 2), _py)
 
-            def tpos_fn(t, _w=w, _tw=tw, _th=th, _py=py, _h=h, _slot=slot_dur):
-                cx = _poster_cx(t, _w, _slot)
-                return (int(cx - _tw / 2), _py + _h + 6)
-
+            mask = VideoClip(mask_fn, ismask=True, duration=slot_dur)
             clips.append(
-                tclip.set_mask(tmask).set_start(start)
-                     .set_duration(slot_dur).set_position(tpos_fn)
+                clip.set_mask(mask).set_start(start)
+                    .set_duration(slot_dur).set_position(pos_fn)
             )
+
+            txt = all_date_imgs[global_idx]
+            if txt is not None:
+                tw   = txt.width
+                tarr = np.array(txt.convert("RGBA"))
+                tclip  = ImageClip(tarr[:, :, :3])
+                talpha = tarr[:, :, 3] / 255.0
+                tmask  = VideoClip(
+                    lambda t, _a=talpha, _ef=edge_fade, _dur=slot_dur:
+                        _a * (t / _ef if t < _ef else
+                              max(0.0, (_dur - t) / _ef) if t > _dur - _ef else 1.0),
+                    ismask=True, duration=slot_dur)
+
+                def tpos_fn(t, _w=w, _tw=tw, _py=py, _h=h, _slot=slot_dur):
+                    return (int(_poster_cx(t, _w, _slot) - _tw / 2), _py + _h + 6)
+
+                clips.append(
+                    tclip.set_mask(tmask).set_start(start)
+                         .set_duration(slot_dur).set_position(tpos_fn)
+                )
+
+            global_idx += 1
 
     return clips
 
@@ -1552,7 +1575,7 @@ def run_job(video_path: Path, yaml_path: Path):
         "pop-in":    f"scale={os.getenv('POPIN_SCALE','2.5')}x  duration={os.getenv('POPIN_DURATION','1.0')}s  stagger={os.getenv('POPIN_STAGGER','0.3')}s",
         "carousel":  f"rx={os.getenv('CAROUSEL_RX','0.32')}  ry={os.getenv('CAROUSEL_RY','0.06')}  scale={os.getenv('CAROUSEL_MIN_SCALE','0.45')}–{os.getenv('CAROUSEL_MAX_SCALE','1.0')}",
         "spotlight": f"darkness={os.getenv('SPOTLIGHT_DARKNESS','190')}  pad={os.getenv('SPOTLIGHT_PAD','1.4')}x  inner={os.getenv('SPOTLIGHT_INNER','0.55')}",
-        "drift":     f"dir={os.getenv('DRIFT_DIRECTION','left')}  spacing={os.getenv('DRIFT_SPACING','0.40')}  enter={os.getenv('DRIFT_ENTER','0.30')}  pause={os.getenv('DRIFT_PAUSE','0.22')}",
+        "drift":     f"dir={os.getenv('DRIFT_DIRECTION','left')}  spacing={os.getenv('DRIFT_SPACING','0.40')}  enter={os.getenv('DRIFT_ENTER','0.30')}  pause={os.getenv('DRIFT_PAUSE','0.22')}  row_offset={os.getenv('DRIFT_ROW_OFFSET','0.5')}",
     }
     params_str = style_params.get(style, "")
     print(f"  Style:     {style}" + (f"  ({params_str})" if params_str else ""))
