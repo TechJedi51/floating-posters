@@ -1,7 +1,7 @@
 # ─────────────────────────────────────────────────────────────
 # floating-posters  —  Radarr poster overlay for Plex prerolls
 # ─────────────────────────────────────────────────────────────
-FROM python:3.13-slim
+FROM python:3.14-slim
 
 LABEL org.opencontainers.image.title="floating-posters"
 LABEL org.opencontainers.image.description="Overlays animated Radarr movie posters onto a background video for Plex prerolls"
