@@ -1,4 +1,4 @@
-# 🎬 floating-posters  `v2.2.5`
+# 🎬 floating-posters  `v2.2.6`
 
 A Docker container that fetches upcoming movie and TV posters from **Radarr** and **Sonarr**, and composites them as **floating, animated overlays** onto background videos — ready to drop into [NeXroll](https://github.com/JFLXCLOUD/NeXroll) as Plex prerolls.
 
@@ -426,11 +426,14 @@ docker run --rm \
 On every push to `main`, GitHub Actions automatically:
 - Builds for `linux/amd64` and `linux/arm64` (Apple Silicon / Unraid)
 - Pushes `ghcr.io/TechJedi51/floating-posters:latest`
-- Tags version releases (`v2.2.5`) as `:2.2.5` and `:2.2`
+- Tags version releases (`v2.2.6`) as `:2.2.6` and `:2.2`
 
 ---
 
 ## Changelog
+
+### v2.2.6
+- **Atomic output**: video is rendered to `.tmp_<name>.mp4` first, then moved atomically into place with `os.replace()` — Plex always sees a complete file, never a partial write mid-render
 
 ### v2.2.5
 - **Drift two-row layout**: 6+ posters split into two rows (same split as grid styles); row 2 time-offset by `DRIFT_ROW_OFFSET` so rows stagger at centre rather than hitting simultaneously
