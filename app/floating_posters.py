@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-floating_posters.py  —  v2.2.5
+floating_posters.py  —  v2.2.6
 ────────────────────────────────────────────────────────────────
 Scans /input for video files. Each video must have a matching
 .yaml file in the same directory that defines all settings.
@@ -38,7 +38,7 @@ except ImportError:
     sys.exit(1)
 
 
-VERSION = "2.2.5"
+VERSION = "2.2.6"
 
 # ══════════════════════════════════════════════════════════════
 #  GLOBAL ENV — connection / quality settings, never from yaml
@@ -1320,18 +1320,31 @@ def composite_video(poster_data: list, bg_path: str, out_path: str):
 
     final      = CompositeVideoClip(all_clips).set_duration(bg.duration)
     thread_str = str(CPU_THREADS) if CPU_THREADS > 0 else "0"
-    print(f"\n  Rendering → {out_path}  (threads: {thread_str})")
-    final.write_videofile(
-        str(out_path),
-        codec         = "libx264",
-        audio_codec   = "aac",
-        fps           = bg.fps,
-        preset        = VIDEO_PRESET,
-        ffmpeg_params = ["-threads", thread_str, "-crf", VIDEO_CRF],
-        logger        = None,
-    )
-    bg.close()
-    final.close()
+
+    # Write to a temp file first so Plex never reads a partial file.
+    # os.replace() is atomic on the same filesystem — the final path
+    # appears only once the render is fully complete.
+    out_path   = Path(out_path)
+    tmp_path   = out_path.with_name(f".tmp_{out_path.name}")
+
+    print(f"\n  Rendering → {tmp_path.name}  (threads: {thread_str})")
+    try:
+        final.write_videofile(
+            str(tmp_path),
+            codec         = "libx264",
+            audio_codec   = "aac",
+            fps           = bg.fps,
+            preset        = VIDEO_PRESET,
+            ffmpeg_params = ["-threads", thread_str, "-crf", VIDEO_CRF],
+            logger        = None,
+        )
+    finally:
+        bg.close()
+        final.close()
+
+    # Atomic move into place — Plex sees the complete file or nothing
+    os.replace(tmp_path, out_path)
+    print(f"  Moved → {out_path.name}")
 
 
 
